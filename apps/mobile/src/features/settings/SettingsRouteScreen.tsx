@@ -19,6 +19,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
+import { ControlPillMenu } from "../../components/ControlPill";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
 import { setLiveActivityUpdatesEnabled } from "../agent-awareness/liveActivityPreferences";
@@ -544,10 +545,59 @@ function ConfiguredSettingsRouteScreen() {
 function GeneralSettingsSection() {
   return (
     <SettingsSection title="General">
+      {Platform.OS === "ios" && Number.parseInt(Platform.Version, 10) >= 26 ? (
+        <VoiceInputLanguageRow />
+      ) : null}
       <SettingsRow icon="folder" label="Project Grouping" target="SettingsProjectGrouping" />
       <AutoSettleSettingsRows />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>
+  );
+}
+
+const VOICE_INPUT_LANGUAGES = [
+  { id: "system", title: "System" },
+  { id: "yue-CN", title: "Cantonese" },
+  { id: "zh-CN", title: "Chinese (Simplified)" },
+  { id: "zh-TW", title: "Chinese (Traditional)" },
+  { id: "en-US", title: "English" },
+  { id: "fr-FR", title: "French" },
+  { id: "de-DE", title: "German" },
+  { id: "it-IT", title: "Italian" },
+  { id: "ja-JP", title: "Japanese" },
+  { id: "ko-KR", title: "Korean" },
+  { id: "pt-BR", title: "Portuguese" },
+  { id: "es-ES", title: "Spanish" },
+];
+
+function VoiceInputLanguageRow() {
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  if (!AsyncResult.isSuccess(preferences)) return null;
+  const locale = preferences.value.voiceInputLocale ?? "system";
+
+  return (
+    <ControlPillMenu
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel="Voice Input Language"
+      title="Voice Input Language"
+      actions={VOICE_INPUT_LANGUAGES.map((language) => ({
+        ...language,
+        state: language.id === locale ? "on" : "off",
+      }))}
+      onPressAction={({ nativeEvent }) =>
+        savePreferences({
+          voiceInputLocale: nativeEvent.event === "system" ? null : nativeEvent.event,
+        })
+      }
+    >
+      <SettingsRow
+        icon="mic"
+        label="Voice Input Language"
+        value={VOICE_INPUT_LANGUAGES.find((language) => language.id === locale)?.title}
+      />
+    </ControlPillMenu>
   );
 }
 

@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -14,6 +16,7 @@ import { useSharedValue } from "react-native-reanimated";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   VoiceInputController,
@@ -69,6 +72,10 @@ export function useVoiceInputController(input: {
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onChangeSelection: (selection: ComposerEditorSelection) => void;
 }) {
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const locale = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.voiceInputLocale ?? undefined)
+    : undefined;
   const [state, setState] = useState<VoiceInputState>(INITIAL_STATE);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const elapsedSecondsRef = useRef(0);
@@ -84,8 +91,8 @@ export function useVoiceInputController(input: {
     previousDraftRef.current = { ownerKey: input.ownerKey, text: input.draftMessage };
     revisionRef.current += 1;
   }
-  const latestInputRef = useRef(input);
-  latestInputRef.current = input;
+  const latestInputRef = useRef({ ...input, locale });
+  latestInputRef.current = { ...input, locale };
 
   const handleRecorderStatus = useCallback((status: RecordingStatus) => {
     controllerRef.current?.handleRecorderStatus({
@@ -100,7 +107,7 @@ export function useVoiceInputController(input: {
   if (!controllerRef.current) {
     controllerRef.current = new VoiceInputController({
       recorder,
-      getTranscriber: getLocalVoiceTranscriber,
+      getTranscriber: () => getLocalVoiceTranscriber(latestInputRef.current.locale),
       requestPermission: async () => {
         const permission = await requestRecordingPermissionsAsync();
         return { granted: permission.granted, canAskAgain: permission.canAskAgain };
@@ -206,7 +213,9 @@ export function useVoiceInputController(input: {
   return {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable:
+      AsyncResult.isSuccess(preferences) &&
+      (getLocalVoiceTranscriber(locale) !== null || getNativeShowcaseScene() !== null),
     state,
     audioLevels,
     elapsedSeconds,

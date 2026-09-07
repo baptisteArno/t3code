@@ -56,6 +56,27 @@ afterEach(() => {
 });
 
 describe("getLocalVoiceTranscriber", () => {
+  it("transcribes in French when explicitly selected on an English device", async () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...Intl.DateTimeFormat().resolvedOptions(),
+      locale: "en-US",
+    });
+    mocks.prepare.mockResolvedValue("fr-FR");
+    mocks.transcribe.mockResolvedValue({
+      duration: 1,
+      segments: [{ text: "Bonjour.", startSecond: 0, endSecond: 1 }],
+    });
+    const options = { signal: new AbortController().signal };
+    const prepared = await getLocalVoiceTranscriber("fr-FR")!.prepare(options);
+
+    await expect(prepared.transcribe("file:///voice.m4a", options)).resolves.toBe("Bonjour.");
+    expect(mocks.prepare).toHaveBeenCalledWith("fr-FR");
+    expect(mocks.transcribe).toHaveBeenCalledWith(audio, "fr-FR");
+
+    await getLocalVoiceTranscriber()!.prepare(options);
+    expect(mocks.prepare).toHaveBeenLastCalledWith("en-US");
+  });
+
   it("keeps the selected language and Apple's resolved locale when the device language changes", async () => {
     const resolvedOptions = Intl.DateTimeFormat().resolvedOptions();
     const deviceLocale = vi
