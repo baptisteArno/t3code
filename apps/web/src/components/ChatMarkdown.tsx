@@ -228,6 +228,7 @@ import {
   markdownImageCopy,
 } from "./chat/ChatMarkdownMedia";
 import { MarkdownExternalLinkContent } from "./chat/MarkdownExternalLink";
+import { useOpenFileWithDiff } from "../hooks/useOpenFileWithDiff";
 import { MarkdownFileLink } from "./chat/MarkdownFileLink";
 import { canUseMarkdownFileShellActions } from "./chat/MarkdownFileLink.logic";
 import { rehypeChipPunctuation } from "./chat/markdownChipPunctuation";
@@ -601,6 +602,8 @@ function useChatMarkdownState({
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
   const isClientHost = useAtomValue(clientHostEnvironmentAtom(environmentId));
+  const canReadFiles = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
+  const openFileWithDiff = useOpenFileWithDiff();
   const remoteOpen = useRemoteOpenResolution(environmentId);
   const canUseShellActions =
     canOperateHost &&
@@ -893,30 +896,31 @@ function useChatMarkdownState({
     }
     return findAgentDirectoryMatch(workspaceRelativePath, agentRoots, searchRoot);
   };
-  const openFileInPanel = (fileLinkMeta: MarkdownFileLinkMeta, panelPath: string) => {
-    if (!threadRef) return;
-    const openAt = (path: string) =>
-      useRightPanelStore.getState().openFile(threadRef, path, fileLinkMeta.line);
+  const openWorkspaceFile = (
+    threadRef: ScopedThreadRef,
+    fileLinkMeta: MarkdownFileLinkMeta,
+    panelPath: string,
+    openAt: (path: string, isCurrent: () => boolean) => void,
+  ) => {
+    // Anything the user opens in this panel meanwhile, such as a file from the picker, wins.
+    const panelRef = rightPanelHostRef(threadRef);
+    const panelKey = scopedThreadKey(panelRef);
+    const userActionRevision = useRightPanelStore.getState().markUserAction(panelRef);
+    const isCurrent = () =>
+      scopedThreadKey(rightPanelHostRef(threadRef)) === panelKey &&
+      useRightPanelStore.getState().getUserActionRevision(panelRef) === userActionRevision;
     if (
       fileLinkMeta.workspaceLookupPath === null ||
       !cwd ||
       workspaceLinkLookupQuery(panelPath, cwd) === null
     ) {
-      openAt(panelPath);
+      openAt(panelPath, isCurrent);
       return;
     }
-    // Anything the user opens in this panel meanwhile, such as a file from the picker, wins.
-    const panelRef = rightPanelHostRef(threadRef);
-    const panelKey = scopedThreadKey(panelRef);
-    const userActionRevision = useRightPanelStore.getState().markUserAction(panelRef);
     void (async () => {
       const match = await findWorkspaceFileMatch(fileLinkMeta);
-      if (
-        scopedThreadKey(rightPanelHostRef(threadRef)) !== panelKey ||
-        useRightPanelStore.getState().getUserActionRevision(panelRef) !== userActionRevision
-      )
-        return;
-      openAt(match ?? panelPath);
+      if (!isCurrent()) return;
+      openAt(match ?? panelPath, isCurrent);
     })();
   };
   const fileLinkChip = (
@@ -942,8 +946,9 @@ function useChatMarkdownState({
       mediaMimeTypeFromExtension(
         fileLinkMeta.basename.slice(fileLinkMeta.basename.lastIndexOf(".")),
       ) !== null;
+    const workspaceRelativePath = fileLinkMeta.workspaceRelativePath;
     const panelPath =
-      fileLinkMeta.workspaceRelativePath ??
+      workspaceRelativePath ??
       (!canPreviewMedia && isHostPath(fileLinkMeta.filePath) ? fileLinkMeta.filePath : null);
 
     return (
@@ -992,7 +997,32 @@ function useChatMarkdownState({
         resolveCopyPaths={async () =>
           markdownFileCopyPaths(fileLinkMeta, await resolveHostPath(), cwd)
         }
-        onOpenInPanel={(path) => openFileInPanel(fileLinkMeta, path)}
+        onOpenInPanel={(path) => {
+          if (!threadRef) return;
+          openWorkspaceFile(threadRef, fileLinkMeta, path, (resolved) =>
+            useRightPanelStore.getState().openFile(threadRef, resolved, fileLinkMeta.line),
+          );
+        }}
+        onOpenWithDiff={
+          threadRef && canReadFiles && workspaceRelativePath !== null
+            ? () =>
+                openWorkspaceFile(
+                  threadRef,
+                  fileLinkMeta,
+                  workspaceRelativePath,
+                  (resolved, isCurrent) =>
+                    void openFileWithDiff(
+                      threadRef,
+                      resolved,
+                      () =>
+                        useRightPanelStore
+                          .getState()
+                          .openFile(threadRef, resolved, fileLinkMeta.line),
+                      isCurrent,
+                    ),
+                )
+            : undefined
+        }
         onOpenMedia={
           threadRef && canPreviewMedia
             ? () => openMarkdownMedia(mediaPath, fileLinkMeta.filePath)
