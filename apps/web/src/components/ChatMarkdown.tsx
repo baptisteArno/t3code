@@ -206,6 +206,7 @@ import {
   markdownImageCopy,
 } from "./chat/ChatMarkdownMedia";
 import { MarkdownExternalLinkContent } from "./chat/MarkdownExternalLink";
+import { useOpenFileWithDiff } from "../hooks/useOpenFileWithDiff";
 import { MarkdownFileLink } from "./chat/MarkdownFileLink";
 import { canUseMarkdownFileShellActions } from "./chat/MarkdownFileLink.logic";
 import { rehypeChipPunctuation } from "./chat/markdownChipPunctuation";
@@ -552,6 +553,8 @@ function useChatMarkdownState({
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
+  const canReadFiles = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
+  const openFileWithDiff = useOpenFileWithDiff();
   const remoteOpen = useRemoteOpenResolution(environmentId);
   const canUseShellActions =
     canOperateHost &&
@@ -790,25 +793,26 @@ function useChatMarkdownState({
     });
     return metadata._tag === "Success" && metadata.value.entries[0] === null ? match : null;
   };
-  const openFileInPanel = (fileLinkMeta: MarkdownFileLinkMeta, panelPath: string) => {
-    if (!threadRef) return;
+  const openWorkspaceFile = (
+    fileLinkMeta: MarkdownFileLinkMeta,
+    panelPath: string,
+    openAt: (path: string, isLatestLookup: () => boolean) => void,
+  ) => {
     // Every open supersedes pending lookups, including synchronous opens.
     const isLatestLookup = claimWorkspaceBasenameLookup();
-    const openAt = (path: string) =>
-      useRightPanelStore.getState().openFile(threadRef, path, fileLinkMeta.line);
     if (
       fileLinkMeta.workspaceLookupPath === null ||
       !cwd ||
       (!needsWorkspaceBasenameLookup(panelPath) &&
         stripRepeatedWorkspacePrefix(panelPath, cwd) === null)
     ) {
-      openAt(panelPath);
+      openAt(panelPath, isLatestLookup);
       return;
     }
     void (async () => {
       const match = await findWorkspaceFileMatch(fileLinkMeta);
       if (!isLatestLookup()) return;
-      openAt(match ?? panelPath);
+      openAt(match ?? panelPath, isLatestLookup);
     })();
   };
   const fileLinkChip = (
@@ -827,8 +831,9 @@ function useChatMarkdownState({
       mediaMimeTypeFromExtension(
         fileLinkMeta.basename.slice(fileLinkMeta.basename.lastIndexOf(".")),
       ) !== null;
+    const workspaceRelativePath = fileLinkMeta.workspaceRelativePath;
     const panelPath =
-      fileLinkMeta.workspaceRelativePath ??
+      workspaceRelativePath ??
       (!canPreviewMedia && isHostPath(fileLinkMeta.filePath) ? fileLinkMeta.filePath : null);
 
     return (
@@ -862,7 +867,31 @@ function useChatMarkdownState({
         resolveCopyPaths={async () =>
           markdownFileCopyPaths(fileLinkMeta, await resolveHostPath(), cwd)
         }
-        onOpenInPanel={(path) => openFileInPanel(fileLinkMeta, path)}
+        onOpenInPanel={(path) => {
+          if (!threadRef) return;
+          openWorkspaceFile(fileLinkMeta, path, (resolved) =>
+            useRightPanelStore.getState().openFile(threadRef, resolved, fileLinkMeta.line),
+          );
+        }}
+        onOpenWithDiff={
+          threadRef && canReadFiles && workspaceRelativePath !== null
+            ? () =>
+                openWorkspaceFile(
+                  fileLinkMeta,
+                  workspaceRelativePath,
+                  (resolved, isLatest) =>
+                    void openFileWithDiff(
+                      threadRef,
+                      resolved,
+                      () =>
+                        useRightPanelStore
+                          .getState()
+                          .openFile(threadRef, resolved, fileLinkMeta.line),
+                      isLatest,
+                    ),
+                )
+            : undefined
+        }
         onOpenMedia={
           threadRef && canPreviewMedia
             ? () => openMarkdownMedia(mediaPath, fileLinkMeta.filePath)

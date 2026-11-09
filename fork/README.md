@@ -46,6 +46,7 @@ Keep this list in step with `git log <upstream tag>..custom-nightly`.
 | `feat(web): right panel keeps one width …`           | none                                                     | upstream ships an equivalent             |
 | `chore(fork): releases also ship the linux-x64 …`    | fork only                                                | never                                    |
 | `fix(web): diff file tree shows added and deleted …` | [#33310](https://github.com/pingdotgg/t3code/pull/33310) | #33310 is merged                         |
+| `feat(web): clicking a file the agent mentions …`    | none                                                     | upstream ships an equivalent             |
 
 ## Adding a change
 
