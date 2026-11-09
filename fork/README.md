@@ -26,6 +26,7 @@ Keep this list in step with `git log <upstream tag>..custom-nightly`.
 | `build(desktop): sign macOS builds without passkeys` | none                                                     | upstream signs without a passkey profile |
 | `chore(fork): nightly release` (this folder)         | fork only                                                | never                                    |
 | `feat(sidebar): Oldest first …`                      | [#26380](https://github.com/pingdotgg/t3code/pull/26380) | #26380 is merged                         |
+| `feat(web): Next thread after sending …`             | none                                                     | upstream ships an equivalent             |
 
 ## Adding a change
 
