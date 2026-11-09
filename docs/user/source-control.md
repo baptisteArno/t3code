@@ -32,6 +32,7 @@ Install Git and authenticate on the machine running your T3 Code server (for rem
 A turn's diff shows only that turn's own edits, commits, and conflict fixes—excluding unrelated files brought in by a pull, merge, or rebase. Use the branch comparison to view everything changed against your base branch.
 
 - **Commits view** (web/desktop): Switch the Diff pane source picker to **Commits** to inspect the latest 100 local commits one by one.
+- **Files an agent mentions**: Clicking one opens its changes in the Diff pane when the branch comparison includes it, and the file preview otherwise (right-click → **Preview file** for the whole file). On mobile, tapping it opens Review on **Changes** at that file; on iOS, touch and hold → **Open in file viewer**.
 - **Commit links**: Links to local commits open in the Diff pane (follows **Settings → Diffs → Open pull requests in T3 Code**; `Cmd/Ctrl+Click` opens in browser).
 - **Multi-repo projects**: Use the repository picker in the Diff pane and expand per-repo rows in thread details. See [Projects with several repositories](./multi-repo-projects.md).
 

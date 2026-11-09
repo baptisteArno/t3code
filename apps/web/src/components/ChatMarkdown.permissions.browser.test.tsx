@@ -218,11 +218,18 @@ it("removes host actions after revocation while keeping file preview and copying
   using _setup = setup();
   await using screen = await renderMarkdown("[Readme](docs/readme.md)");
   await screen.openContextMenu();
-  expect(offeredActions()).toEqual(["open", "reveal", "download", "copy-relative", "copy-full"]);
+  expect(offeredActions()).toEqual([
+    "open",
+    "preview-file",
+    "reveal",
+    "download",
+    "copy-relative",
+    "copy-full",
+  ]);
   await setAllowed(false);
   state.choose.mockResolvedValue("download");
   await screen.openContextMenu();
-  expect(offeredActions()).toEqual(["download", "copy-relative", "copy-full"]);
+  expect(offeredActions()).toEqual(["preview-file", "download", "copy-relative", "copy-full"]);
   expect(state.download).toHaveBeenCalledWith("/work", expect.any(Promise));
   await expect(state.download.mock.lastCall![1]).resolves.toBe("/work/docs/readme.md");
   state.choose.mockResolvedValue("copy-full");

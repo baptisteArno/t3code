@@ -13,7 +13,14 @@ export interface ToolCallDiffTarget {
   readonly revision: string;
 }
 
-export type DiffPanelSelection =
+/** A file to scroll to. With `fallback`, a file missing from the scope moves to the branch diff. */
+export interface DiffFileReveal {
+  readonly path: string;
+  readonly requestId: number;
+  readonly fallback: boolean;
+}
+
+type DiffPanelScope =
   | ({ kind: "tool-call" } & ToolCallDiffTarget)
   | { kind: "branch"; baseRef: string | null }
   | { kind: "unstaged" }
@@ -21,12 +28,11 @@ export type DiffPanelSelection =
   | {
       kind: "turn";
       turnId: RunId;
-      /** From the thread's folder, so a tracked repository's file carries that repository's folder. */
-      filePath: string | null;
-      revealRequestId: number;
       /** A turn diff section key to narrow to; absent shows every repository. */
       repository?: string;
     };
+
+export type DiffPanelSelection = DiffPanelScope & { readonly reveal?: DiffFileReveal };
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 
@@ -39,6 +45,9 @@ interface DiffPanelStoreState {
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   selectTurnRepository: (ref: ScopedThreadRef, turnId: RunId, repository: string | null) => void;
   selectCommit: (ref: ScopedThreadRef, sha: string) => void;
+  /** Keeps the current scope unless `fromBranch`, which also survives the pane opening. */
+  revealFile: (ref: ScopedThreadRef, path: string, fromBranch: boolean) => void;
+  settleFileReveal: (ref: ScopedThreadRef, requestId: number, foundPath: string | null) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -46,6 +55,10 @@ interface DiffPanelStoreState {
 function normalizeBaseRef(baseRef: string | null): string | null {
   const normalized = baseRef?.trim();
   return normalized ? normalized : null;
+}
+
+function nextRevealRequestId(previous: DiffPanelSelection | undefined): number {
+  return (previous?.reveal?.requestId ?? 0) + 1;
 }
 
 function branchBaseRef(
@@ -60,7 +73,7 @@ function branchBaseRef(
 
 export const useDiffPanelStore = create<DiffPanelStoreState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
       selectGitScope: (ref, scope) =>
@@ -116,8 +129,15 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
               [threadKey]: {
                 kind: "turn",
                 turnId,
-                filePath: requestedPath,
-                revealRequestId: previous?.kind === "turn" ? previous.revealRequestId + 1 : 1,
+                ...(requestedPath
+                  ? {
+                      reveal: {
+                        path: requestedPath,
+                        requestId: nextRevealRequestId(previous),
+                        fallback: false,
+                      },
+                    }
+                  : {}),
                 // A requested file may sit outside the repository the view was narrowed to.
                 ...(requestedPath === null &&
                 previous?.kind === "turn" &&
@@ -129,22 +149,16 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
           };
         }),
       selectTurnRepository: (ref, turnId, repository) =>
-        set((state) => {
-          const threadKey = scopedThreadKey(ref);
-          const previous = state.byThreadKey[threadKey];
-          return {
-            byThreadKey: {
-              ...state.byThreadKey,
-              [threadKey]: {
-                kind: "turn",
-                turnId,
-                filePath: null,
-                revealRequestId: previous?.kind === "turn" ? previous.revealRequestId : 0,
-                ...(repository === null ? {} : { repository }),
-              },
+        set((state) => ({
+          byThreadKey: {
+            ...state.byThreadKey,
+            [scopedThreadKey(ref)]: {
+              kind: "turn",
+              turnId,
+              ...(repository === null ? {} : { repository }),
             },
-          };
-        }),
+          },
+        })),
       selectCommit: (ref, sha) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -157,6 +171,39 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             branchBaseRefByThreadKey: { ...state.branchBaseRefByThreadKey, [threadKey]: baseRef },
           };
         }),
+      revealFile: (ref, path, fromBranch) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const previous = state.byThreadKey[threadKey];
+          const scope: DiffPanelScope =
+            fromBranch || previous === undefined
+              ? { kind: "branch", baseRef: branchBaseRef(state, threadKey) }
+              : previous;
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: {
+                ...scope,
+                reveal: { path, requestId: nextRevealRequestId(previous), fallback: true },
+              },
+            },
+          };
+        }),
+      settleFileReveal: (ref, requestId, foundPath) => {
+        const state = get();
+        const threadKey = scopedThreadKey(ref);
+        const previous = state.byThreadKey[threadKey];
+        const reveal = previous?.reveal;
+        if (!previous || reveal?.requestId !== requestId || !reveal.fallback) return;
+        const { reveal: _reveal, ...scope } = previous;
+        const next: DiffPanelSelection =
+          foundPath !== null
+            ? { ...scope, reveal: { path: foundPath, requestId, fallback: false } }
+            : scope.kind !== "branch"
+              ? { kind: "branch", baseRef: branchBaseRef(state, threadKey), reveal }
+              : scope;
+        set({ byThreadKey: { ...state.byThreadKey, [threadKey]: next } });
+      },
       reconcileTurnSelection: (ref, availableTurnIds) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
