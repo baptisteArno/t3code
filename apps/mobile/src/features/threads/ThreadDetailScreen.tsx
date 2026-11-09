@@ -72,7 +72,7 @@ import {
   type ProviderSubagentStatus,
 } from "@t3tools/client-runtime/state/thread-execution";
 import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
-import { isProviderNativeSubagentThread } from "@t3tools/contracts";
+import { isListedThreadLineage, isProviderNativeSubagentThread } from "@t3tools/contracts";
 import type { QueuedRunEdit } from "../../state/queued-run-edit";
 import type { FollowUpBehavior } from "../../lib/followUpBehavior";
 import type { ActiveTurnComposerAction } from "@t3tools/client-runtime/state/composer-dispatch";
@@ -161,6 +161,7 @@ import {
 } from "../../state/threads";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { threadStreamHaptics } from "./threadStreamHaptics";
+import { useAdvanceAfterSend } from "./nextThreadAfterSend";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useDelayedStatus } from "../../lib/useDelayedStatus";
@@ -1262,6 +1263,7 @@ function ThreadDetailBody(
       : (appAtomRegistry.get(
           environmentThreadDetails.pendingRequestsAtom(props.selectedThreadDetailRef),
         )?.approvals ?? []);
+  const advanceAfterSend = useAdvanceAfterSend();
   const handleSendMessage = async (
     followUp?: ActiveTurnComposerAction,
     stillSendable?: () => boolean,
@@ -1324,6 +1326,20 @@ function ThreadDetailBody(
     }
 
     clearUsageLimitsFor(targetThreadKey);
+    // A draft advances from its own submit, before its route turns into the new thread.
+    if (
+      !props.draftMode &&
+      isListedThreadLineage(props.selectedThread.lineage) &&
+      advanceAfterSend({
+        environmentId: props.selectedThread.environmentId,
+        threadId: props.selectedThread.id,
+        projectId: props.selectedThread.projectId,
+      })
+    ) {
+      composerEditorRef.current?.blur();
+      void KeyboardController.dismiss();
+      return messageId;
+    }
 
     const nextAnchorMessageId = resolveThreadFeedSubmissionAnchor({
       currentAnchorMessageId: anchorMessageId,

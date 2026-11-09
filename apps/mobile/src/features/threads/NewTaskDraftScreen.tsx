@@ -4,6 +4,7 @@ import { DraftThreadHeader } from "./DraftThreadHeader";
 import { useComposerAttachmentActions } from "../../state/use-composer-attachment-actions";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
 import { submittedThreadParams } from "./thread-route-state";
+import { useAdvanceAfterSend } from "./nextThreadAfterSend";
 import { ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
 import { draftThreadShell } from "./draft-thread-shell";
 import { useRememberThreadProject } from "./useRememberThreadProject";
@@ -162,6 +163,7 @@ export function NewTaskDraftScreen(props: {
   const projects = useProjects();
   const flow = useNewTaskFlow();
   const navigation = useNavigation();
+  const advanceAfterSend = useAdvanceAfterSend();
   const isFocused = useIsFocused();
   const goBack = useWorkspaceBackNavigation("threads");
   const currentRoute = useRoute();
@@ -673,11 +675,20 @@ export function NewTaskDraftScreen(props: {
       return null;
     }
     promptInputRef.current?.blur();
-    navigation.dispatch(
-      CommonActions.setParams(
-        submittedThreadParams(String(message.environmentId), String(message.threadId)),
-      ),
-    );
+    // Advancing replaces the draft route the way opening the new thread would.
+    if (
+      !advanceAfterSend({
+        environmentId: message.environmentId,
+        threadId: message.threadId,
+        projectId: selectedProject.id,
+      })
+    ) {
+      navigation.dispatch(
+        CommonActions.setParams(
+          submittedThreadParams(String(message.environmentId), String(message.threadId)),
+        ),
+      );
+    }
     // The composer has moved to the submitted thread; a pick still converting
     // would otherwise resurrect this draft.
     abortComposerDraftOperations(draftKey);

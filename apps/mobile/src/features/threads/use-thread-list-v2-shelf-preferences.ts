@@ -13,6 +13,8 @@ export function useThreadListV2ShelfPreferences() {
     loaded && preferencesResult.value.threadListSettledShelfExpanded === true;
   const workingShelfEnabled = loaded && preferencesResult.value.workingShelfEnabled !== false;
   const inboxOldestFirst = loaded && preferencesResult.value.inboxOldestFirst === true;
+  const advanceAfterSend =
+    loaded && workingShelfEnabled && preferencesResult.value.advanceAfterSend === true;
   const workingShelfExpanded =
     loaded && preferencesResult.value.threadListWorkingShelfExpanded === true;
 
@@ -48,6 +50,7 @@ export function useThreadListV2ShelfPreferences() {
     snoozedShelfExpanded,
     workingShelfEnabled,
     inboxOldestFirst,
+    advanceAfterSend,
     workingShelfExpanded,
     toggleSettledShelf,
     toggleSnoozedShelf,
