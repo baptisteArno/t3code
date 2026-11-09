@@ -7,9 +7,10 @@ import { m, type MessageResolver } from "../i18n/messages";
 import { READABLE_LIGHT_THEME_NAME } from "./readableSyntaxTheme";
 
 // Light mode uses a darker pierre-light so syntax stays readable on every code surface.
+// Catppuccin has no light flavor that matches Macchiato, so only dark mode uses it.
 export const DIFF_THEME_NAMES = {
   light: READABLE_LIGHT_THEME_NAME,
-  dark: "pierre-dark",
+  dark: "catppuccin-macchiato",
 } as const;
 
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
