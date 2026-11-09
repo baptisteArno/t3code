@@ -515,6 +515,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("sort order reverse queue inbox threads sidebar newest")],
   },
   {
+    id: "advance-after-send",
+    title: msg("Next thread after sending"),
+    to: "/settings/general",
+    targetId: "working-shelf",
+    searchTerms: [msg("auto advance jump skip queue inbox threads sidebar submit")],
+  },
+  {
     id: "boring-sidebar",
     title: msg("Boring sidebar (group by project)"),
     to: "/settings/labs",

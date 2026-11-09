@@ -45,6 +45,7 @@ import {
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { trackPendingWorkspaceDefault } from "../lib/draftWorkspaceDefaults";
 import { peekT3ProjectFile, readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
+import { rememberDraftOrigin } from "../settleAndAdvance";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSummaries } from "../state/presentation";
 import { environmentServerConfigsAtom } from "../state/server";
@@ -139,6 +140,13 @@ export function createNewThreadHandler(router: AnyRouter) {
       setPrompt(draftId, options.prompt);
     };
     const currentRouteTarget = getCurrentRouteTarget();
+    const rememberOrigin = (threadId: ThreadId) => {
+      if (currentRouteTarget?.kind !== "server") return;
+      rememberDraftOrigin(
+        scopeThreadRef(projectRef.environmentId, threadId),
+        currentRouteTarget.threadRef,
+      );
+    };
     const carrySourceShell =
       currentRouteTarget?.kind === "server" ? readThreadShell(currentRouteTarget.threadRef) : null;
     const carrySourceDraft =
@@ -351,6 +359,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         };
         seedPrompt(emptyStoredDraftThread.draftId);
         applyProjectFile?.(emptyStoredDraftThread.draftId);
+        rememberOrigin(emptyStoredDraftThread.threadId);
         const routeTargetAfterWrites = getCurrentRouteTarget();
         if (
           routeTargetAfterWrites?.kind === "draft" &&
@@ -422,6 +431,7 @@ export function createNewThreadHandler(router: AnyRouter) {
       }
       seedPrompt(draftId);
       defaultEnvMode?.applyProjectFile(draftId);
+      rememberOrigin(threadId);
       await router.navigate({
         to: "/draft/$draftId",
         params: { draftId },

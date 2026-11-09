@@ -15,6 +15,7 @@ import {
 import { describe, expect, it, vi } from "vite-plus/test";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import { applyOrchestrationV2ProjectionEvent } from "./orchestrationV2Projection.ts";
 import { v2Now, v2Projection, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import {
@@ -32,6 +33,7 @@ import {
   pruneResolvedUserInputDrafts,
   resolvedQuestionDraftKeys,
   seedUserInputDraftAnswers,
+  threadAsksUserBesides,
   userInputDraftKey,
   type ApprovalResponder,
   type ThreadRequestsResolved,
@@ -403,6 +405,90 @@ describe("pending v2 questions", () => {
       ),
     };
     expect(derivePendingThreadRequests(live).userInputs[0]?.dismissible).toBe(false);
+  });
+});
+
+describe("what a thread still asks once one request is answered", () => {
+  const question = projection.turnItems[0]!;
+  const card = {
+    threadId: v2Projection.thread.id,
+    runId: null,
+    nodeId,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "waiting" as const,
+    title: null,
+    startedAt: v2Now,
+    completedAt: null,
+    updatedAt: v2Now,
+  };
+  const secret = {
+    ...card,
+    id: TurnItemId.make("secret-card"),
+    type: "secret_request" as const,
+    label: "API key",
+    reason: "Deploy",
+    secretStatus: "pending" as const,
+  };
+  const link = {
+    ...card,
+    id: TurnItemId.make("link-card"),
+    type: "link_request" as const,
+    reason: "Delegate to the VPS",
+    linkStatus: "pending" as const,
+  };
+  const userWroteAt = (at: DateTime.Utc) => ({
+    id: MessageId.make("user-message"),
+    threadId: v2Projection.thread.id,
+    runId: null,
+    nodeId: null,
+    role: "user" as const,
+    text: "Never mind",
+    attachments: [],
+    streaming: false,
+    createdBy: "user" as const,
+    creationSource: "web" as const,
+    createdAt: at,
+    updatedAt: at,
+  });
+
+  it("asks nothing more once its only question, secret or link is answered", () => {
+    expect(threadAsksUserBesides(projection, requestId)).toBe(false);
+    expect(threadAsksUserBesides({ ...v2Projection, turnItems: [secret] }, secret.id)).toBe(false);
+    expect(threadAsksUserBesides({ ...v2Projection, turnItems: [link] }, link.id)).toBe(false);
+  });
+
+  it("still asks while another question, secret or link waits", () => {
+    expect(threadAsksUserBesides(projection, secret.id)).toBe(true);
+    const withSecret = { ...projection, turnItems: [question, secret] };
+    expect(threadAsksUserBesides(withSecret, requestId)).toBe(true);
+    const declined = { ...secret, secretStatus: "declined" as const };
+    expect(
+      threadAsksUserBesides({ ...projection, turnItems: [question, declined] }, requestId),
+    ).toBe(false);
+    expect(threadAsksUserBesides({ ...v2Projection, turnItems: [secret, link] }, secret.id)).toBe(
+      true,
+    );
+  });
+
+  it("stops counting a link card once the user writes after it", () => {
+    const later = DateTime.add(v2Now, { minutes: 1 });
+    const turnItems = [secret, link];
+    expect(
+      threadAsksUserBesides(
+        { ...v2Projection, turnItems, messages: [userWroteAt(later)] },
+        secret.id,
+      ),
+    ).toBe(false);
+    expect(
+      threadAsksUserBesides(
+        { ...v2Projection, turnItems, messages: [userWroteAt(v2Now)] },
+        secret.id,
+      ),
+    ).toBe(true);
   });
 });
 

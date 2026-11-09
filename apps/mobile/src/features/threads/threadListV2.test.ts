@@ -37,6 +37,8 @@ import {
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
   layoutThreadListV2RowMenuActions,
+  isStillQueued,
+  resolveNextThreadAfterSend,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SwipeActions,
   resolveThreadListV2SnoozePresets,
@@ -330,6 +332,7 @@ describe("search lists ranked matches", () => {
         makeThread({ id: ThreadId.make("notes"), title: "Deploy notes" }),
         makeThread({ id: ThreadId.make("mentioned"), title: "Weekly notes" }),
         makeThread({ id: ThreadId.make("exact"), title: "Deploy", settledOverride: "settled" }),
+        makeThread({ id: ThreadId.make("lunch"), title: "Lunch" }),
       ],
       environmentId: null,
       searchQuery: "deploy",
@@ -344,6 +347,106 @@ describe("search lists ranked matches", () => {
       ["mentioned", "card"],
     ]);
     expect([...layout.contentOnlyThreadKeys]).toEqual([matchKey("mentioned")]);
+    // Next thread after sending reads the inbox the search hides.
+    expect(layout.nextThreadQueue.map((thread) => thread.id).toSorted()).toEqual([
+      "lunch",
+      "mentioned",
+      "notes",
+    ]);
+  });
+});
+
+describe("resolveNextThreadAfterSend", () => {
+  const remote = EnvironmentId.make("environment-remote");
+  const thread = (id: string, environment = environmentId) => ({
+    environmentId: environment,
+    id: ThreadId.make(id),
+  });
+  it.each([
+    ["the top thread", [thread("a"), thread("b")], "c", "a"],
+    ["past the sent thread", [thread("a"), thread("b")], "a", "b"],
+    ["past an environment without its config", [thread("a", remote), thread("b")], "c", "b"],
+    ["nothing when only the sent thread is left", [thread("a")], "a", null],
+    ["past a thread no longer queued", [thread("a"), thread("b")], "c", "b", ["a"]],
+  ] as const)(
+    "picks %s",
+    (_, nextThreadQueue, leavingId, expected, unqueuedIds: readonly string[] = []) => {
+      expect(
+        resolveNextThreadAfterSend({
+          nextThreadQueue,
+          leavingThreadKey: `${environmentId}:${leavingId}`,
+          loadedEnvironmentIds: new Set([environmentId]),
+          isQueued: (queued) => !unqueuedIds.includes(queued.id),
+        })?.id ?? null,
+      ).toBe(expected);
+    },
+  );
+});
+
+describe("isStillQueued", () => {
+  const running = {
+    status: "running" as const,
+    activeRunId: null,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerName: "Codex",
+    lastError: null,
+    updatedAt: NOW,
+  };
+  it.each([
+    ["an active thread", makeThread({ id: ThreadId.make("a"), title: "A" }), [], true],
+    ["a thread gone from the shell", null, [], false],
+    [
+      "an archived thread",
+      makeThread({ id: ThreadId.make("a"), title: "A", archivedAt: NOW }),
+      [],
+      false,
+    ],
+    [
+      "a thread settled since",
+      makeThread({ id: ThreadId.make("a"), title: "A", settledOverride: "settled" }),
+      [],
+      false,
+    ],
+    [
+      "a settled thread with a message waiting to send",
+      makeThread({ id: ThreadId.make("a"), title: "A", settledOverride: "settled" }),
+      [`${environmentId}:a`],
+      true,
+    ],
+    [
+      "a thread snoozed since",
+      makeThread({ id: ThreadId.make("a"), title: "A", snoozedUntil: "2099-01-01T00:00:00.000Z" }),
+      [],
+      false,
+    ],
+    [
+      "a thread started since",
+      makeThread({ id: ThreadId.make("a"), title: "A", runtime: running }),
+      [],
+      false,
+    ],
+  ] as const)("keeps %s: %s", (_, shell, queuedKeys, expected) => {
+    expect(isStillQueued(shell, { now: NOW, queuedThreadKeys: new Set(queuedKeys) })).toBe(
+      expected,
+    );
+  });
+});
+
+describe("next thread queue", () => {
+  it("lists pinned threads not working before the active section", () => {
+    const layout = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: ThreadId.make("active"), title: "Active" }),
+        makeThread({ id: ThreadId.make("pinned-working"), title: "Busy", pinnedAt: NOW }),
+        makeThread({ id: ThreadId.make("pinned-idle"), title: "Idle", pinnedAt: NOW }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      workingShelfEnabled: true,
+      isWorking: (thread) => thread.id === "pinned-working",
+      now: NOW,
+    });
+    expect(layout.nextThreadQueue.map((thread) => thread.id)).toEqual(["pinned-idle", "active"]);
   });
 });
 
