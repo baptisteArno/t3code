@@ -3862,6 +3862,8 @@
   "d9b0fbd680d5f175": "Barra lateral",
   "bdf39fd139a04325": "Seção Trabalhando",
   "9b84f5d1b1d24122": "A thread que espera há mais tempo fica no topo.",
+  "b48f8a811918fcae": "Próxima thread após enviar",
+  "79aad632a10bf28e": "Depois de enviar uma mensagem, responder a uma solicitação ou concluir ou adiar a thread aberta, abre a primeira thread da caixa de entrada. Com a caixa de entrada vazia, inicia uma nova thread.",
   "b0c77717b7d7b4a3": "Novas threads",
   "8c8cf0bc2721cb2c": "Usar o último projeto",
   "7d8bec2dc3f0e1a6": "Inicia novas threads no último projeto que você usou neste dispositivo.",

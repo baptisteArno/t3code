@@ -3862,6 +3862,8 @@
   "d9b0fbd680d5f175": "Barra lateral",
   "bdf39fd139a04325": "Sección En curso",
   "9b84f5d1b1d24122": "El hilo que lleva más tiempo esperando se queda arriba.",
+  "b48f8a811918fcae": "Siguiente hilo tras enviar",
+  "79aad632a10bf28e": "Después de enviar un mensaje, responder una solicitud o resolver o posponer el hilo abierto, abre el primer hilo de la bandeja de entrada. Con la bandeja vacía, empieza un hilo nuevo.",
   "b0c77717b7d7b4a3": "Nuevos hilos",
   "8c8cf0bc2721cb2c": "Usar el último proyecto",
   "7d8bec2dc3f0e1a6": "Inicia los hilos nuevos en el último proyecto que usaste en este dispositivo.",
