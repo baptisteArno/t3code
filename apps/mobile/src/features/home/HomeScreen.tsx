@@ -54,6 +54,7 @@ import { useThreadSearch } from "../../state/queries";
 import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { useThreadListSearchMatches } from "../threads/useThreadListSearchMatches";
 import { useThreadListV2 } from "../threads/useThreadListV2";
+import { useNextThreadAfterSendSource } from "../threads/nextThreadAfterSend";
 import { useThreadListNow } from "../threads/use-thread-list-now";
 import { useSearchScrollRestoration } from "../layout/workspace/useSearchScrollRestoration";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
@@ -372,6 +373,7 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozedShelfExpanded,
     workingShelfEnabled,
     inboxOldestFirst,
+    advanceAfterSend,
     workingShelfExpanded,
     toggleSettledShelf,
     toggleSnoozedShelf,
@@ -437,6 +439,11 @@ export function HomeScreen(props: HomeScreenProps) {
     onSelectThread(thread);
   };
   useThreadJumpShortcuts(threadListV2Items, selectThread);
+  useNextThreadAfterSendSource({
+    enabled: advanceAfterSend,
+    inboxThreads: threadListV2Layout.inboxThreads,
+    loadedEnvironmentIds: settlementEnvironmentIds,
+  });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the list's visible range after commit to enable swipe gestures on those rows
   useEffect(() => {
     if (swipeEnabled) activateVisibleRows(threadListV2Items);
