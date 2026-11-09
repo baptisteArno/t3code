@@ -15,7 +15,7 @@ export type ReviewSectionKind = "turn" | "working-tree" | "branch-range";
 export type ReviewGitSectionKind = Exclude<ReviewSectionKind, "turn">;
 type ReviewGitSource = ReviewDiffPreviewSource & { readonly kind: ReviewGitSectionKind };
 
-const CHANGES_SECTION_ID = "git:branch-range";
+export const CHANGES_SECTION_ID = "git:branch-range";
 const GIT_SECTION_KINDS = ["working-tree", "branch-range"] as const;
 const GIT_PLACEHOLDER_TITLES = {
   "working-tree": msg("Uncommitted", { $context: "diff section: working tree" }),
