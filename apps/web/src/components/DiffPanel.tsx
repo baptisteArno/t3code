@@ -29,7 +29,7 @@ import { useFilesystemReadAccess } from "~/state/filesystem";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { useFileContextMenuHandler } from "../fileContextMenu";
 import { type DraftId } from "../composerDraftStore";
-import { openDiffFilePrimaryAction } from "../diffFileActions";
+import { openDiffFilePrimaryAction, resolveDiffPathForWorkspace } from "../diffFileActions";
 import { toolCallDiff } from "../lib/toolCallDiff";
 import { useCheckpointDiff, useTurnItemDetail } from "~/state/queries";
 import { revisionedQuery } from "~/state/revisionedQuery";
@@ -330,9 +330,9 @@ export default function DiffPanel({
     diffSelection.kind === "branch" || diffSelection.kind === "commit"
       ? diffSelection.baseRef
       : null;
-  const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
-  const selectedFileRevealRequestId =
-    diffSelection.kind === "turn" ? diffSelection.revealRequestId : 0;
+  const fileReveal = diffSelection.reveal ?? null;
+  const selectedFilePath = fileReveal?.path ?? null;
+  const selectedFileRevealRequestId = fileReveal?.requestId ?? 0;
   const selectedTurn =
     selectedRunId === null
       ? undefined
@@ -708,38 +708,60 @@ export default function DiffPanel({
     codeViewScroll.flush();
     codeViewReveal.flush();
   });
-  const revealDiffFile = (filePath: string) => {
-    const index = renderableFileEntries.findIndex(
-      (candidate) => resolveFileDiffPath(candidate.fileDiff) === filePath,
-    );
-    const file = renderableFileEntries[index];
-    if (!file) return false;
+  // A chat link names a path relative to the thread's cwd; the diff and its tree name it from the repository root.
+  const revealDiffFile = (filePath: string, fromWorkspace = false) => {
+    const file = renderableFileEntries.find((candidate) => {
+      const diffPath = resolveFileDiffPath(candidate.fileDiff);
+      return fromWorkspace
+        ? resolveDiffPathForWorkspace({
+            filePath: diffPath,
+            workspaceRoot: activeCwd,
+            repositoryRoot: activeRepositoryRoot,
+          }) === filePath
+        : diffPath === filePath;
+    });
+    if (!file) return null;
     codeViewScroll.discard();
     updateCollapsedDiffFiles((current) => {
       const next = new Set(current);
       next.delete(file.fileKey);
       return next;
     });
-    if (lazySource) requestFile(filePath);
+    const diffPath = resolveFileDiffPath(file.fileDiff);
+    if (lazySource) requestFile(diffPath);
     codeViewReveal.request(file.fileKey);
-    return true;
+    return diffPath;
   };
+  // A loading, failed, or truncated diff cannot prove a file is absent.
+  const isRevealFileListComplete =
+    !isLoadingSelectedPatch &&
+    !selectedPatchError &&
+    !(isGitSelection && preview?.incomplete) &&
+    (lazySource !== null ||
+      (hasResolvedPatch && !isSelectedPatchTruncated && renderablePatch?.kind !== "raw") ||
+      (toolCallItem !== undefined && toolCallPreview?.patch === undefined));
 
   // A file another view asked to reveal (a chat diff link): retried as the diff loads until it
   // holds the file, then not again until a new request, so it does not undo what the user did since.
   const externalRevealRef = useRef<string | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reveals an externally requested file in the diff viewer, retrying as the diff DOM loads
   useEffect(() => {
-    if (!selectedFilePath) {
+    if (!fileReveal) {
       externalRevealRef.current = null;
       return;
     }
-    const key = JSON.stringify([collapseScopeKey, selectedFilePath, selectedFileRevealRequestId]);
+    const key = JSON.stringify([collapseScopeKey, fileReveal.path, fileReveal.requestId]);
     if (externalRevealRef.current === key) return;
-    if (revealDiffFile(selectedFilePath)) {
-      externalRevealRef.current = key;
-    }
-  }, [collapseScopeKey, selectedFilePath, selectedFileRevealRequestId, revealDiffFile]);
+    const foundPath = revealDiffFile(fileReveal.path, fileReveal.fallback);
+    if (foundPath !== null) externalRevealRef.current = key;
+    if (
+      !routeThreadRef ||
+      !fileReveal.fallback ||
+      (foundPath === null && !isRevealFileListComplete)
+    )
+      return;
+    useDiffPanelStore.getState().settleFileReveal(routeThreadRef, fileReveal.requestId, foundPath);
+  }, [collapseScopeKey, fileReveal, isRevealFileListComplete, revealDiffFile, routeThreadRef]);
 
   const openDiffFile = (filePath: string) => {
     openDiffFilePrimaryAction({

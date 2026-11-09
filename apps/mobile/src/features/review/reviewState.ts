@@ -27,6 +27,24 @@ const reviewSelectedSectionIdByThreadKeyAtom = Atom.family((threadKey: string) =
   ),
 );
 
+export interface ReviewFileReveal {
+  readonly sectionId: string;
+  /** The diff's path; file ids of a parsed patch are not paths. */
+  readonly path: string;
+}
+
+const NO_REVIEW_FILE_REVEAL_ATOM = Atom.make<ReviewFileReveal | null>(null).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:review:file-reveal:null"),
+);
+
+const reviewFileRevealByThreadKeyAtom = Atom.family((threadKey: string) =>
+  Atom.make<ReviewFileReveal | null>(null).pipe(
+    Atom.keepAlive,
+    Atom.withLabel(`mobile:review:file-reveal:${threadKey}`),
+  ),
+);
+
 const reviewExpandedFileIdsByThreadKeyAtom = Atom.family((threadKey: string) =>
   Atom.make(EMPTY_REVIEW_SECTION_FILE_IDS).pipe(
     Atom.keepAlive,
@@ -123,7 +141,25 @@ export function setReviewSelectedSectionId(threadKey: string, sectionId: string 
   // A line selection belongs to the section it was made in; switching away drops it, so
   // switching back does not bring back a range over lines that may have changed.
   clearReviewCommentTarget();
+  clearReviewFileReveal(threadKey);
   appAtomRegistry.set(reviewSelectedSectionIdByThreadKeyAtom(threadKey), sectionId);
+}
+
+export function useReviewFileReveal(threadKey: string | null): ReviewFileReveal | null {
+  return useAtomValue(
+    threadKey ? reviewFileRevealByThreadKeyAtom(threadKey) : NO_REVIEW_FILE_REVEAL_ATOM,
+  );
+}
+
+/** Selects a section and asks review to scroll to one of its files until the view shows it. */
+export function revealReviewFile(threadKey: string, sectionId: string, path: string): void {
+  setReviewSelectedSectionId(threadKey, sectionId);
+  appAtomRegistry.set(reviewFileRevealByThreadKeyAtom(threadKey), { sectionId, path });
+}
+
+export function clearReviewFileReveal(threadKey: string): void {
+  const atom = reviewFileRevealByThreadKeyAtom(threadKey);
+  if (appAtomRegistry.get(atom) !== null) appAtomRegistry.set(atom, null);
 }
 
 export function updateReviewExpandedFileIds(

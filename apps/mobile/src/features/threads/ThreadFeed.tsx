@@ -166,8 +166,9 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/ui/
 import { markdownFileEmbedLabel, resolveMarkdownMediaPreview } from "../../lib/markdownMedia";
 import { attachmentVideoPreviewSource } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "./CopyTextButton";
-import { getReviewSectionIdForCheckpoint } from "../review/reviewModel";
-import { setReviewSelectedSectionId } from "../review/reviewState";
+import { findBranchChangedReviewFile } from "../review/findBranchChangedReviewFile";
+import { CHANGES_SECTION_ID, getReviewSectionIdForCheckpoint } from "../review/reviewModel";
+import { revealReviewFile, setReviewSelectedSectionId } from "../review/reviewState";
 import { Menu } from "../../components/ui/Menu";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { useBarInset, useContentTopInset } from "../../components/ui/useBarInset";
@@ -2924,7 +2925,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     };
     return lookup().catch(() => relativePath);
   };
-  const onMarkdownLinkPress = (href: string, imageEmbed = false) => {
+  const onMarkdownLinkPress = (href: string, imageEmbed = false, fileViewerOnly = false) => {
     markdownLinkRequest.current?.abort();
     const request = new AbortController();
     markdownLinkRequest.current = request;
@@ -2991,15 +2992,49 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     if (presentation.kind === "file") {
       const path = resolveFileLinkPath(props.workspaceRoot, presentation.path);
       if (path === null) return;
-      void findFileLinkTarget(presentation.path, path, request.signal).then((target) => {
-        if (request.signal.aborted) return;
-        void Haptics.selectionAsync();
+      const openFileViewer = (target: string) =>
         navigation.navigate("ThreadFile", {
           environmentId: String(props.environmentId),
           threadId: String(props.threadId),
           path: fileRoutePathSegments(target),
           ...(presentation.line ? { line: String(presentation.line) } : {}),
         });
+      // A file the branch changed opens on its changes in review; any other in the file viewer.
+      void findFileLinkTarget(presentation.path, path, request.signal).then((target) => {
+        if (request.signal.aborted) return;
+        void Haptics.selectionAsync();
+        const cwd = props.workspaceRoot;
+        if (fileViewerOnly || !cwd || isAbsolutePath(target)) {
+          openFileViewer(target);
+          return;
+        }
+        void findBranchChangedReviewFile({
+          environmentId: props.environmentId,
+          threadId: props.threadId,
+          cwd,
+          workspacePath: target,
+          signal: request.signal,
+        }).then(
+          (diffPath) => {
+            if (request.signal.aborted) return;
+            if (diffPath === null) {
+              openFileViewer(target);
+              return;
+            }
+            revealReviewFile(
+              scopedThreadKey(props.environmentId, props.threadId),
+              CHANGES_SECTION_ID,
+              diffPath,
+            );
+            navigation.navigate("ThreadReview", {
+              environmentId: props.environmentId,
+              threadId: props.threadId,
+            });
+          },
+          () => {
+            if (!request.signal.aborted) openFileViewer(target);
+          },
+        );
       });
       return;
     }
@@ -3116,7 +3151,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           return;
         }
         case "open-file":
-          onMarkdownLinkPress(href);
+          onMarkdownLinkPress(href, false, true);
           return;
         case "save":
           shareFileChip(target);
