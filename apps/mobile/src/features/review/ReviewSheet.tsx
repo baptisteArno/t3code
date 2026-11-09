@@ -8,7 +8,14 @@ import { AppBar } from "../../components/ui/AppBar";
 import type { AppBarMenuItem } from "../../components/ui/AppBar.types";
 import type { ReviewSectionItem } from "./reviewModel";
 import { useReviewHeaderPresentation } from "./useReviewHeaderPresentation";
-import { type Ref, type ReactElement, useImperativeHandle, useRef, useState } from "react";
+import {
+  type Ref,
+  type ReactElement,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import {
   FlatList,
   Platform,
@@ -41,7 +48,7 @@ import {
   useWorkspacePaneState,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
-import { useReviewCacheForThread } from "./reviewState";
+import { clearReviewFileReveal, useReviewCacheForThread, useReviewFileReveal } from "./reviewState";
 import {
   isNativeReviewDiffDrawEvent,
   type NativeReviewDiffViewHandle,
@@ -448,6 +455,23 @@ export function ReviewSheet(props: ReviewSheetProps) {
       : undefined,
   });
   const { collapsedFileIds, toggleExpandedFile, toggleViewedFile, viewedFileIds } = fileVisibility;
+  const fileReveal = useReviewFileReveal(reviewCache.threadKey);
+  const revealedFileId =
+    fileReveal !== null && fileReveal.sectionId === selectedSection?.id
+      ? reviewFiles.find((file) => file.path === fileReveal.path)?.id
+      : undefined;
+  const { threadKey } = reviewCache;
+  const settleFileReveal = () => {
+    if (threadKey) clearReviewFileReveal(threadKey);
+  };
+  // A first file sits at the top, where the view reports no visible file, so its reveal ends here.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a reveal belongs to this visit; a later visit from elsewhere must not scroll to it
+  useEffect(
+    () => () => {
+      if (threadKey) clearReviewFileReveal(threadKey);
+    },
+    [threadKey],
+  );
   const commentSelection = useReviewCommentSelectionController({
     environmentId,
     threadId,
@@ -482,6 +506,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   };
 
   const handleSelectFile = async (fileId: string | null) => {
+    settleFileReveal();
     loadVisibleFile(fileId, true);
     commentSelection.clearSelection();
     if (fileId !== null && collapsedFileIds.includes(fileId)) {
@@ -501,8 +526,14 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const handleVisibleFileChange = (
     event: NativeSyntheticEvent<{ readonly fileId?: string | null }>,
   ) => {
-    loadVisibleFile(event.nativeEvent.fileId ?? null);
-    reviewFileNavigatorRef.current?.setVisibleFile(event.nativeEvent.fileId ?? null);
+    const fileId = event.nativeEvent.fileId ?? null;
+    loadVisibleFile(fileId);
+    reviewFileNavigatorRef.current?.setVisibleFile(fileId);
+    // The initial scroll landed: stop holding it, so a refreshed diff does not jump back.
+    if (fileId !== null && fileId === revealedFileId) {
+      settleFileReveal();
+      if (collapsedFileIds.includes(fileId)) toggleExpandedFile(fileId);
+    }
   };
   const renderInspector = () => (
     <ReviewFileNavigator
@@ -678,6 +709,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
                     contentWidth={NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
                     contentInsetTop={listHeader ? 0 : topContentInset}
                     contentInsetBottom={bottomContentInset}
+                    initialFileId={revealedFileId ?? ""}
                     nativeViewRef={nativeReviewDiffViewRef}
                     rowHeight={nativeReviewDiffStyle.rowHeight}
                     rowsJson={nativeBridge.rowsJson}

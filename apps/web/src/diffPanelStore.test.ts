@@ -39,6 +39,45 @@ describe("diffPanelStore", () => {
     });
   });
 
+  it("reveals a requested file in the open scope, then the branch diff", () => {
+    const ref = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
+    const selection = () => useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)];
+    const store = useDiffPanelStore.getState();
+
+    store.selectGitScope(ref, "unstaged");
+    store.revealFile(ref, "src/a.ts", false);
+    expect(selection()).toEqual({
+      kind: "unstaged",
+      reveal: { path: "src/a.ts", requestId: 1, fallback: true },
+    });
+    const unstaged = selection();
+    store.settleFileReveal(ref, 0, null);
+    expect(selection()).toBe(unstaged);
+    store.settleFileReveal(ref, 1, null);
+    expect(selection()).toEqual({
+      kind: "branch",
+      baseRef: null,
+      reveal: { path: "src/a.ts", requestId: 1, fallback: true },
+    });
+    store.settleFileReveal(ref, 1, null);
+    expect(selection()).toEqual({ kind: "branch", baseRef: null });
+
+    store.selectCommit(ref, "abc");
+    store.revealFile(ref, "a.ts", true);
+    expect(store.consumeKeepSelectionOnOpen(ref)).toBe(true);
+    store.settleFileReveal(ref, 1, "pkg/a.ts");
+    const shown = selection();
+    expect(shown).toEqual({
+      kind: "branch",
+      baseRef: null,
+      reveal: { path: "pkg/a.ts", requestId: 1, fallback: false },
+    });
+    store.settleFileReveal(ref, 1, null);
+    expect(selection()).toBe(shown);
+    store.selectGitScope(ref, "unstaged");
+    expect(selection()).toEqual({ kind: "unstaged" });
+  });
+
   it("refreshes a live tool-call target when its source item completes", () => {
     const target = {
       threadId: ThreadId.make("child"),
