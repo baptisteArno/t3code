@@ -1,5 +1,5 @@
 import { codeToTokens } from "@pierre/highlights";
-import { pierreDark, pierreLight } from "@pierre/highlights/themes";
+import { catppuccinMacchiato, pierreLight } from "@pierre/highlights/themes";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { resolveHighlightLanguage } from "./highlightLanguage";
@@ -24,7 +24,7 @@ describe("highlightCode", () => {
 
     for (const [scheme, theme] of [
       ["light", pierreLight],
-      ["dark", pierreDark],
+      ["dark", catppuccinMacchiato],
     ] as const) {
       const expected = codeToTokens(code, { lang: "tsx", theme }).tokens.map((line) =>
         line.map((token) => ({
@@ -68,7 +68,7 @@ it("normalizes only requested lines from full-source records, including CRLF and
       highlightCode(code, "typescript", "dark")[line],
     );
   }
-  expect(source.highlightLine(2, "dark")?.[0]?.color).toBe("#737373");
+  expect(source.highlightLine(2, "dark")?.[0]?.color).toBe("#939ab7");
   expect(source.highlightLine(100, "dark")).toBeUndefined();
 });
 
