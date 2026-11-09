@@ -130,6 +130,7 @@ export interface Preferences {
   readonly toolCallVisibility?: ToolCallVisibility;
   readonly workingShelfEnabled?: boolean;
   readonly inboxOldestFirst?: boolean;
+  readonly advanceAfterSend?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -218,6 +219,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     toolCallVisibility?: ToolCallVisibility;
     workingShelfEnabled?: boolean;
     inboxOldestFirst?: boolean;
+    advanceAfterSend?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -349,6 +351,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.inboxOldestFirst === "boolean") {
     preferences.inboxOldestFirst = parsed.inboxOldestFirst;
+  }
+  if (typeof parsed.advanceAfterSend === "boolean") {
+    preferences.advanceAfterSend = parsed.advanceAfterSend;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;

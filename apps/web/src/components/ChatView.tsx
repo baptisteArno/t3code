@@ -3001,6 +3001,7 @@ export default function ChatView(props: ChatViewProps) {
     onSideChat: sideChat.available ? sendSideChatStable : undefined,
     sideChatDisabledReason,
     handleNewThreadInActiveProject,
+    advancesAfterSend: !embedded && !backgroundThread,
     persistThreadSettingsForNextTurn,
     linkCheckoutPullRequest,
   });
