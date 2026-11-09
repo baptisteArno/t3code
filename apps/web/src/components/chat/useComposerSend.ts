@@ -89,7 +89,11 @@ import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
 import { useClientSettingsHydrated } from "../../hooks/useSettings";
 import { environmentPresentations } from "../../state/presentation";
-import { nextThreadAfterSend, nextThreadAfterSendEnabled } from "../../settleAndAdvance";
+import {
+  nextThreadAfterSend,
+  nextThreadAfterSendEnabled,
+  takeDraftOrigin,
+} from "../../settleAndAdvance";
 import {
   approvalRedirectNotice,
   loadBalancingSendWarning,
@@ -1306,9 +1310,12 @@ export function useComposerSend(input: ComposerSendInput) {
         // Leave a sent draft's route before it finalizes, or its redirect takes the route back.
         let advanced = false;
         if (nextAfterSend === null) {
-          advanced = Boolean(
-            await handleNewThread(scopeProjectRef(activeProject.environmentId, activeProject.id)),
+          const opened = await handleNewThread(
+            scopeProjectRef(activeProject.environmentId, activeProject.id),
           );
+          // This draft opened by itself, so sending it goes to the top of the inbox.
+          if (opened) takeDraftOrigin(scopeThreadRef(activeProject.environmentId, opened.threadId));
+          advanced = opened !== null;
         } else if (nextAfterSend) {
           await navigate({
             to: "/$environmentId/$threadId",

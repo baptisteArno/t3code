@@ -132,7 +132,11 @@ import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
-import { registerNextThreadAfterSend, registerSettleAndAdvance } from "../settleAndAdvance";
+import {
+  registerNextThreadAfterSend,
+  registerSettleAndAdvance,
+  takeDraftOrigin,
+} from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -1650,12 +1654,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
   const advanceAfterSend =
     useClientSettings((s) => s.sidebarAdvanceAfterSend) && workingShelfEnabled;
-  const nextThreadAfterSend = useStableCallback((sentRef: ScopedThreadRef) =>
+  const nextThreadAfterSend = useStableCallback((sentRef: ScopedThreadRef) => {
     // Settings and Usage cover the thread without unmounting its ChatView.
-    readRouteThreadKey(router) === scopedThreadKey(sentRef)
-      ? resolveNextThreadAfterSend({ activeThreads, sentRef, serverConfigs })
-      : undefined,
-  );
+    if (readRouteThreadKey(router) !== scopedThreadKey(sentRef)) return undefined;
+    const originRef = takeDraftOrigin(sentRef);
+    const openedFrom = originRef ? readThreadShell(originRef) : null;
+    return resolveNextThreadAfterSend({ activeThreads, openedFrom, sentRef, serverConfigs });
+  });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's active list in the module-level next-thread-after-send registry
   useEffect(
     () => (advanceAfterSend ? registerNextThreadAfterSend(nextThreadAfterSend) : undefined),

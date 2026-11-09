@@ -153,8 +153,9 @@ bottom. Each device keeps its own choice.
 
 Turn on **Settings → General → Next thread after sending** to move through that queue as you
 reply. Each message you send opens the thread at the top of the active list, and when no other
-active thread is left, a new thread opens. Each device keeps its own choice. Sending in the
-background still keeps you where you are.
+active thread is left, a new thread opens. Each device keeps its own choice. On web and desktop,
+a new thread you start from another thread is the exception: sending it takes you back to the
+thread you left. Sending in the background still keeps you where you are.
 
 ### Group threads by project (beta)
 

@@ -929,19 +929,29 @@ describe("navigation after parking a thread", () => {
 describe("next thread after sending", () => {
   const local = EnvironmentId.make("environment-local");
   const remote = EnvironmentId.make("environment-remote");
-  const thread = (environmentId: EnvironmentId, id: string) => ({
+  const thread = (environmentId: EnvironmentId, id: string, archivedAt: string | null = null) => ({
+    archivedAt,
     environmentId,
     id: ThreadId.make(id),
   });
   it.each([
-    ["the top thread", [thread(local, "a"), thread(local, "b")], "c", "a"],
-    ["past the sent thread", [thread(local, "a"), thread(local, "b")], "a", "b"],
-    ["past an unconfigured environment", [thread(remote, "a"), thread(local, "b")], "c", "b"],
-    ["nothing when only the sent thread is left", [thread(local, "a")], "a", null],
-  ] as const)("picks %s", (_, activeThreads, sentId, expected) => {
+    ["the top thread", [thread(local, "a"), thread(local, "b")], null, "c", "a"],
+    ["past the sent thread", [thread(local, "a"), thread(local, "b")], null, "a", "b"],
+    ["past an unconfigured environment", [thread(remote, "a"), thread(local, "b")], null, "c", "b"],
+    ["nothing when only the sent thread is left", [thread(local, "a")], null, "a", null],
+    ["the thread the draft was opened from", [thread(local, "a")], thread(local, "w"), "c", "w"],
+    [
+      "the top thread when the draft's origin was archived",
+      [thread(local, "a")],
+      thread(local, "w", "2026-11-09T00:00:00.000Z"),
+      "c",
+      "a",
+    ],
+  ] as const)("picks %s", (_, activeThreads, openedFrom, sentId, expected) => {
     expect(
       resolveNextThreadAfterSend({
         activeThreads,
+        openedFrom,
         sentRef: scopeThreadRef(local, ThreadId.make(sentId)),
         serverConfigs: new Map([[local, {}]]),
       })?.threadId ?? null,

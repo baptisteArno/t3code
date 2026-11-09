@@ -60,12 +60,19 @@ export function shouldNavigateAfterThreadPark(input: {
   );
 }
 
-/** The top active thread other than the one just sent to; null when none is left. */
+/**
+ * The thread a sent draft was opened from, else the top active thread other than the one
+ * just sent to; null when none is left.
+ */
 export function resolveNextThreadAfterSend(input: {
   readonly activeThreads: readonly Pick<SidebarThreadSummary, "environmentId" | "id">[];
+  readonly openedFrom: Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id"> | null;
   readonly sentRef: ScopedThreadRef;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
 }): ScopedThreadRef | null {
+  if (input.openedFrom && input.openedFrom.archivedAt === null) {
+    return scopeThreadRef(input.openedFrom.environmentId, input.openedFrom.id);
+  }
   const sentKey = scopedThreadKey(input.sentRef);
   for (const thread of input.activeThreads) {
     const ref = scopeThreadRef(thread.environmentId, thread.id);
