@@ -371,6 +371,7 @@ interface SidebarThreadPartitionInput {
   readonly workingShelfEnabled: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  readonly inboxOldestFirst: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -397,6 +398,7 @@ function resolveDraggedOrders(input: {
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
+  readonly inboxOldestFirst: boolean;
 }): typeof NO_DRAGGED_ORDERS {
   const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
   const thread = threadByKey.get(drag.activeKey);
@@ -412,6 +414,7 @@ function resolveDraggedOrders(input: {
       ? sortInboxThreadsByReturn(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
           inboxReturns.returnedAt,
+          input.inboxOldestFirst,
         ).map(threadShellKey)
       : undefined,
   };
@@ -459,6 +462,7 @@ function useSidebarThreads(input: {
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
     useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
+  const inboxOldestFirst = useClientSettings((s) => s.sidebarInboxOldestFirst);
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -503,6 +507,7 @@ function useSidebarThreads(input: {
     optimisticDrop,
     workingShelfEnabled,
     sortActiveBySend: folderGroups !== null,
+    inboxOldestFirst,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -583,6 +588,7 @@ function useSidebarThreads(input: {
     ...partition,
     threads,
     workingShelfEnabled,
+    inboxOldestFirst,
     searchableThreads: [
       ...pinnedThreads,
       ...activeThreads,
@@ -698,7 +704,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const sortedActive = sortActiveBySend
     ? sortWorkingThreadsBySend(active)
     : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
+      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt, input.inboxOldestFirst)
       : sortThreadsForSidebar(active);
   return {
     pinnedThreads:
@@ -1318,6 +1324,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const {
     workingShelfEnabled,
+    inboxOldestFirst,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -2082,6 +2089,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settledThreads,
           activeThreads,
           workingShelfEnabled,
+          inboxOldestFirst,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
