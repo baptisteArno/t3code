@@ -36,6 +36,7 @@ import {
 } from "../lib/chatThreadActions";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
+import { rememberDraftOrigin } from "../settleAndAdvance";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSummaries } from "../state/presentation";
 import { environmentServerConfigsAtom } from "../state/server";
@@ -113,6 +114,13 @@ export function createNewThreadHandler(router: AnyRouter) {
     const requestingRouteHref = router.state.location.href;
     const routeChangedSinceRequest = () => router.state.location.href !== requestingRouteHref;
     const currentRouteTarget = getCurrentRouteTarget();
+    const rememberOrigin = (threadId: ThreadId) => {
+      if (currentRouteTarget?.kind !== "server") return;
+      rememberDraftOrigin(
+        scopeThreadRef(projectRef.environmentId, threadId),
+        currentRouteTarget.threadRef,
+      );
+    };
     const carrySourceShell =
       currentRouteTarget?.kind === "server" ? readThreadShell(currentRouteTarget.threadRef) : null;
     const carrySourceDraft =
@@ -317,6 +325,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           threadId: emptyStoredDraftThread.threadId,
         };
         seedPrompt(emptyStoredDraftThread.draftId);
+        rememberOrigin(emptyStoredDraftThread.threadId);
         const routeTargetAfterWrites = getCurrentRouteTarget();
         if (
           routeTargetAfterWrites?.kind === "draft" &&
@@ -385,6 +394,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           ...pickExplicitWorkspaceOptions(options),
         });
         seedPrompt(racedDraft.draftId);
+        rememberOrigin(racedDraft.threadId);
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId: racedDraft.draftId },
@@ -413,6 +423,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });
       }
       seedPrompt(draftId);
+      rememberOrigin(threadId);
       await router.navigate({
         to: "/draft/$draftId",
         params: { draftId },
