@@ -14,6 +14,10 @@ On web and desktop, open the Diff pane source picker and choose **Commits** to r
 commit at a time. The list shows the newest 100 commits in the branch comparison. A merge commit
 shows its changes against its first parent.
 
+Clicking a file an agent mentions opens its changes in the Diff pane when the branch comparison
+includes it, and the file preview otherwise. An open Diff pane keeps its current view when the file
+is there. Right-click the file and choose **Preview file** to see the whole file instead.
+
 A commit link from a supported code host opens in the Diff pane when the thread's repository has
 that commit locally, on any branch. Otherwise a pull request commit link opens the pull request. Other
 commit links follow your **Open links in** setting; on web, when that opens a new tab, T3 Code first
