@@ -31,9 +31,11 @@ Threads don't require a project. Pick **No project** (or press `mod+alt+n` on we
 
 ### Working section (beta)
 
-Enabled by default (**Settings → General → Working section**, per device). Unpinned threads that are actively running—or waiting on subagents, watched PRs, or monitors—collapse into a **Working** section below Active, and return to the top of Active when they finish, fail, or need input.
+Enabled by default (**Settings → General → Working section**, per device). Unpinned threads that are actively running—or waiting on subagents, watched PRs, or monitors—collapse into a **Working** section below Active, and return to the top of Active (or the bottom with **Oldest first**) when they finish, fail, or need input.
 
 While enabled, Active is sorted by most recent return (manual reordering is paused until you turn it off).
+
+**Oldest first** (**Settings → General → Oldest first**, per device): work through Active as a queue. The thread that has waited longest stays at the top, and threads that come back later join at the bottom.
 
 ### Group threads by project (beta)
 
