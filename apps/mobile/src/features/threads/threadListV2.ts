@@ -432,6 +432,8 @@ export interface ThreadListV2Layout {
   readonly nextSnoozeWakeAt: string | null;
   /** Threads listed only because their messages match the search. */
   readonly contentOnlyThreadKeys: ReadonlySet<string>;
+  /** Pinned threads not working, then the active section, in order, whatever a search lists. */
+  readonly nextThreadQueue: ReadonlyArray<EnvironmentThreadShell>;
 }
 
 export interface ThreadListV2ThreadListItem {
@@ -711,6 +713,49 @@ function sortSettledThreadsReusingLast(
   return lastSettledOutput;
 }
 
+/**
+ * The first queued thread other than the one being left that is still queued; null when none is
+ * left.
+ */
+export function resolveNextThreadAfterSend<
+  Thread extends Pick<EnvironmentThreadShell, "environmentId" | "id">,
+>(input: {
+  readonly nextThreadQueue: ReadonlyArray<Thread>;
+  readonly leavingThreadKey: string;
+  readonly loadedEnvironmentIds: ReadonlySet<EnvironmentId>;
+  readonly isQueued: (thread: Thread) => boolean;
+}): Thread | null {
+  return (
+    input.nextThreadQueue.find(
+      (thread) =>
+        `${thread.environmentId}:${thread.id}` !== input.leavingThreadKey &&
+        // Without its server config, a thread's snooze and settle state is unknown.
+        input.loadedEnvironmentIds.has(thread.environmentId) &&
+        input.isQueued(thread),
+    ) ?? null
+  );
+}
+
+/**
+ * Whether a thread still belongs in the next-thread queue by its current shell. A list covered by
+ * a thread screen stops rendering, so its queue can hold threads parked or started since.
+ */
+export function isStillQueued(
+  shell: EnvironmentThreadShell | null,
+  input: { readonly now: string; readonly queuedThreadKeys: ReadonlySet<string> },
+): boolean {
+  if (shell === null || shell.archivedAt !== null) return false;
+  if (effectiveSnoozed(shell, { now: input.now })) return false;
+  // The list keeps a settled thread with a message waiting to send among active threads.
+  if (
+    shell.settledOverride === "settled" &&
+    !input.queuedThreadKeys.has(`${shell.environmentId}:${shell.id}`)
+  ) {
+    return false;
+  }
+  return !isThreadWorking(shell);
+}
+
 export function buildThreadListV2Items(input: {
   readonly pendingOrder?: PendingThreadOrder | null;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
@@ -758,6 +803,7 @@ export function buildThreadListV2Items(input: {
     : null;
 
   const workingShelfEnabled = input.workingShelfEnabled === true;
+  const isWorking = input.isWorking ?? isThreadWorking;
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
@@ -793,8 +839,7 @@ export function buildThreadListV2Items(input: {
         environmentId: thread.environmentId,
         threadId: thread.id,
       });
-      if (input.matchedThreadKeys?.has(key) !== true) continue;
-      contentOnlyThreadKeys.add(key);
+      if (input.matchedThreadKeys?.has(key) === true) contentOnlyThreadKeys.add(key);
     }
     const supportsSettlement = input.settlementEnvironmentIds?.has(thread.environmentId) ?? true;
     const supportsSnooze = input.snoozeEnvironmentIds?.has(thread.environmentId) ?? true;
@@ -815,12 +860,25 @@ export function buildThreadListV2Items(input: {
       settled.push(thread);
     } else if (thread.pinnedAt != null) {
       pinned.push(thread);
-    } else if (workingShelfEnabled && (input.isWorking ?? isThreadWorking)(thread)) {
+    } else if (workingShelfEnabled && isWorking(thread)) {
       working.push(thread);
     } else {
       active.push(thread);
     }
   }
+
+  const orderedActive = workingShelfEnabled
+    ? sortInboxThreadsByReturn(active, input.inboxReturnAt, input.inboxOldestFirst)
+    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const orderedPinned = applyPendingThreadOrder(
+    sortPinnedThreadsByOrderKey(pinned),
+    "pinned",
+    pending,
+  );
+  const nextThreadQueue = [
+    ...orderedPinned.filter((thread) => !isWorking(thread)),
+    ...orderedActive,
+  ];
 
   if (rankedMatches !== null) {
     // Searching lists every match by rank across shelves, as the palette and
@@ -859,12 +917,10 @@ export function buildThreadListV2Items(input: {
       settledShelfHeaderIndex: null,
       nextSnoozeWakeAt,
       contentOnlyThreadKeys,
+      nextThreadQueue,
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt, input.inboxOldestFirst)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
@@ -909,11 +965,7 @@ export function buildThreadListV2Items(input: {
         );
 
   const items: ThreadListV2Item[] = [];
-  for (const thread of applyPendingThreadOrder(
-    sortPinnedThreadsByOrderKey(pinned),
-    "pinned",
-    pending,
-  )) {
+  for (const thread of orderedPinned) {
     items.push({
       thread,
       variant: "card",
@@ -982,5 +1034,6 @@ export function buildThreadListV2Items(input: {
     settledShelfHeaderIndex,
     nextSnoozeWakeAt,
     contentOnlyThreadKeys,
+    nextThreadQueue,
   };
 }

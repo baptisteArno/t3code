@@ -101,7 +101,9 @@ import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
 import { useClientSettingsHydrated } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { useAdvanceAfterAnswer, useOpenThreadAfterSend } from "../../hooks/useAdvanceAfterSend";
 import { environmentPresentations } from "../../state/presentation";
+import { nextThreadAfterSend, nextThreadAfterSendEnabled } from "../../settleAndAdvance";
 import {
   approvalRedirectNotice,
   composerDraftContentChanged,
@@ -290,6 +292,8 @@ interface ComposerSendInput {
   /** Refuses `/side` with this reason and keeps the draft. */
   readonly sideChatDisabledReason: string | null;
   readonly handleNewThreadInActiveProject: () => void;
+  /** Side chats and background composers stay put after sending. */
+  readonly advancesAfterSend: boolean;
   readonly persistThreadSettingsForNextTurn: (input: {
     threadId: ThreadId;
     createdAt: string;
@@ -380,12 +384,15 @@ export function useComposerSend(input: ComposerSendInput) {
     onSideChat,
     sideChatDisabledReason,
     handleNewThreadInActiveProject,
+    advancesAfterSend,
     persistThreadSettingsForNextTurn,
     linkCheckoutPullRequest,
   } = input;
   const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
+  const openThreadAfterSend = useOpenThreadAfterSend();
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const clientSettingsHydrated = useClientSettingsHydrated();
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
     reportFailure: false,
@@ -1332,6 +1339,12 @@ export function useComposerSend(input: ComposerSendInput) {
           promptRef.current = "";
           clearComposerDraftContent(composerDraftTarget);
           composerRef.current?.resetCursorState();
+          if (advancesAfterSend) {
+            advanceAfterAnswer(
+              scopeThreadRef(environmentId, threadIdForSend),
+              approvalFeedbackTarget.requestId,
+            );
+          }
         }
         return;
       }
@@ -1578,6 +1591,10 @@ export function useComposerSend(input: ComposerSendInput) {
           )
         : null;
       if (backgroundThreadRef) beginBackgroundDraftSubmissionByRef(backgroundThreadRef);
+      // Holds the draft's automatic promotion, which would take the route while the next one opens.
+      else if (isLocalDraftThread && advancesAfterSend && nextThreadAfterSendEnabled()) {
+        beginBackgroundDraftSubmissionByRef(scopeThreadRef(environmentId, threadIdForSend));
+      }
       const startPromise = startThreadTurn({
         environmentId,
         input: {
@@ -1644,9 +1661,27 @@ export function useComposerSend(input: ComposerSendInput) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();
+        const nextAfterSend =
+          advancesAfterSend &&
+          submissionIntent !== "background" &&
+          currentRouteThreadKeyRef.current === routeThreadKey
+            ? nextThreadAfterSend(scopeThreadRef(environmentId, threadIdForSend))
+            : undefined;
+        // Leave a sent draft's route before it finalizes, or its redirect takes the route back.
+        const advanced =
+          nextAfterSend !== undefined &&
+          (await openThreadAfterSend(
+            nextAfterSend,
+            scopeThreadRef(environmentId, threadIdForSend),
+            scopeProjectRef(activeProject.environmentId, activeProject.id),
+          ));
         // A draft still on screen finalizes once its thread route takes over.
         if (sentDraftThreadRef) {
-          if (backgroundDraftOpened || currentRouteThreadKeyRef.current !== routeThreadKey) {
+          if (
+            backgroundDraftOpened ||
+            advanced ||
+            currentRouteThreadKeyRef.current !== routeThreadKey
+          ) {
             finalizePromotedDraftThreadByRef(sentDraftThreadRef);
           } else {
             clearBackgroundDraftSubmissionByRef(sentDraftThreadRef);

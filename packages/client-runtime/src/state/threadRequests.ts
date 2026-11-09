@@ -550,6 +550,32 @@ export function derivePendingThreadRequests(
   return { approvals, userInputs };
 }
 
+/**
+ * Whether the thread still asks its user for an approval, an answer, a secret or a link besides
+ * `answeredId`. A link card stops asking once the user writes after it, as on the server.
+ */
+export function threadAsksUserBesides(
+  projection: Pick<ThreadStructure, "runtimeRequests" | "turnItems" | "messages">,
+  answeredId: string,
+): boolean {
+  const pending = derivePendingThreadRequests(projection);
+  if ([...pending.approvals, ...pending.userInputs].some((r) => r.requestId !== answeredId)) {
+    return true;
+  }
+  const lastUserWroteAt = projection.messages.findLast(
+    (message) => message.role === "user" && message.createdBy === "user",
+  )?.updatedAt;
+  return projection.turnItems.some(
+    (item) =>
+      item.id !== answeredId &&
+      ((item.type === "secret_request" && item.secretStatus === "pending") ||
+        (item.type === "link_request" &&
+          item.linkStatus === "pending" &&
+          (lastUserWroteAt === undefined ||
+            !DateTime.isGreaterThan(lastUserWroteAt, item.startedAt ?? item.updatedAt)))),
+  );
+}
+
 export function createQuestionHistoryProjector<
   Row extends ThreadStructureVisibleTurnItem =
     OrchestrationV2ThreadProjection["visibleTurnItems"][number],

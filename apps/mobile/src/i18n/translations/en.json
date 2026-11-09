@@ -3878,6 +3878,8 @@
   "d9b0fbd680d5f175": "Sidebar",
   "bdf39fd139a04325": "Working section",
   "9b84f5d1b1d24122": "The thread that has waited longest stays at the top.",
+  "b48f8a811918fcae": "Next thread after sending",
+  "79aad632a10bf28e": "After you send a message, answer a request, or settle or snooze the open thread, open the top thread of the inbox. With an empty inbox, start a new thread.",
   "b0c77717b7d7b4a3": "New threads",
   "8c8cf0bc2721cb2c": "Use last project",
   "7d8bec2dc3f0e1a6": "Start new threads in the last project you used on this device.",

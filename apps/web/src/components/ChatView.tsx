@@ -1489,6 +1489,7 @@ export default function ChatView(props: ChatViewProps) {
     activePendingIsResponding,
     respondingRequestIds,
     onRespondToApproval: onRespondToApprovalStable,
+    onAnswerApproval: onAnswerApprovalStable,
     onDismissUserInput: onDismissUserInputStable,
     onSelectActivePendingUserInputOption: onSelectActivePendingUserInputOptionStable,
     onChangeActivePendingUserInputCustomAnswer,
@@ -3208,6 +3209,7 @@ export default function ChatView(props: ChatViewProps) {
     onSideChat: sideChat.available ? sendSideChatStable : undefined,
     sideChatDisabledReason,
     handleNewThreadInActiveProject,
+    advancesAfterSend: !embedded && !backgroundThread,
     persistThreadSettingsForNextTurn,
     linkCheckoutPullRequest,
   });
@@ -3661,7 +3663,7 @@ export default function ChatView(props: ChatViewProps) {
                   pendingApprovals={pendingApprovals}
                   heldApprovalRequestIds={heldApprovalRequestIds}
                   respondingRequestIds={respondingRequestIds}
-                  onRespondToApproval={onRespondToApprovalStable}
+                  onRespondToApproval={onAnswerApprovalStable}
                   canOperateThread={canOperateThread}
                   threadDetailRef={routeThreadDetailRef}
                   entriesInput={timelineEntriesInput}

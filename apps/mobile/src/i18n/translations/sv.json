@@ -3877,6 +3877,8 @@
   "d9b0fbd680d5f175": "Sidofält",
   "bdf39fd139a04325": "Avsnittet Arbetar",
   "9b84f5d1b1d24122": "Tråden som har väntat längst stannar överst.",
+  "b48f8a811918fcae": "Nästa tråd efter skickande",
+  "79aad632a10bf28e": "När du har skickat ett meddelande, svarat på en förfrågan eller markerat den öppna tråden som klar eller snoozat den öppnas den översta tråden i inkorgen. Med tom inkorg startas en ny tråd.",
   "b0c77717b7d7b4a3": "Nya trådar",
   "8c8cf0bc2721cb2c": "Använd senaste projekt",
   "7d8bec2dc3f0e1a6": "Starta nya trådar i det senaste projekt du använde på den här enheten.",
