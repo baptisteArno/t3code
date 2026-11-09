@@ -34,6 +34,7 @@ import type { SecretTextInputHandle } from "../../components/ui/SecretTextInput.
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAdvanceAfterAnswer } from "./nextThreadAfterSend";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
@@ -92,6 +93,7 @@ function PendingSecretRequestForm(props: {
   });
   const inputs = secretRequestInputs(item, m);
   const multiple = item.fields !== undefined;
+  const beginAnswer = useAdvanceAfterAnswer();
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   // The server accepts a reference answer only with this scope; without it the card is typed.
   const canUseReferences = useEnvironmentScope(props.environmentId, AuthProvidersManageScope);
@@ -120,12 +122,14 @@ function PendingSecretRequestForm(props: {
     // password, so the card is emptied before it closes; a failed answer puts the values back.
     const typed = reply.type === "save" ? reply.values : values;
     setValues({});
+    const advance = beginAnswer();
     const result = await answer({ environmentId: props.environmentId, input }).finally(() => {
       inFlight.current = false;
       setSubmitting(false);
     });
     if (result._tag === "Success") {
       setReference("");
+      advance({ environmentId: props.environmentId, threadId: item.threadId }, item.id);
       return;
     }
     setValues(typed);
