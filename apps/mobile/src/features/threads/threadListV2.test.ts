@@ -37,6 +37,7 @@ import {
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
   layoutThreadListV2RowMenuActions,
+  resolveNextThreadAfterSend,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SwipeActions,
   resolveThreadListV2SnoozePresets,
@@ -253,6 +254,7 @@ describe("search lists ranked matches", () => {
         makeThread({ id: ThreadId.make("notes"), title: "Deploy notes" }),
         makeThread({ id: ThreadId.make("mentioned"), title: "Weekly notes" }),
         makeThread({ id: ThreadId.make("exact"), title: "Deploy", settledOverride: "settled" }),
+        makeThread({ id: ThreadId.make("lunch"), title: "Lunch" }),
       ],
       environmentId: null,
       searchQuery: "deploy",
@@ -267,6 +269,34 @@ describe("search lists ranked matches", () => {
       ["mentioned", "card"],
     ]);
     expect([...layout.contentOnlyThreadKeys]).toEqual([matchKey("mentioned")]);
+    // Next thread after sending reads the inbox the search hides.
+    expect(layout.inboxThreads.map((thread) => thread.id).toSorted()).toEqual([
+      "lunch",
+      "mentioned",
+      "notes",
+    ]);
+  });
+});
+
+describe("resolveNextThreadAfterSend", () => {
+  const remote = EnvironmentId.make("environment-remote");
+  const thread = (id: string, environment = environmentId) => ({
+    environmentId: environment,
+    id: ThreadId.make(id),
+  });
+  it.each([
+    ["the top thread", [thread("a"), thread("b")], "c", "a"],
+    ["past the sent thread", [thread("a"), thread("b")], "a", "b"],
+    ["past an environment without its config", [thread("a", remote), thread("b")], "c", "b"],
+    ["nothing when only the sent thread is left", [thread("a")], "a", null],
+  ] as const)("picks %s", (_, inboxThreads, sentId, expected) => {
+    expect(
+      resolveNextThreadAfterSend({
+        inboxThreads,
+        sentThreadKey: `${environmentId}:${sentId}`,
+        loadedEnvironmentIds: new Set([environmentId]),
+      })?.id ?? null,
+    ).toBe(expected);
   });
 });
 
