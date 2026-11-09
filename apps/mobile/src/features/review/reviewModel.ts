@@ -15,7 +15,7 @@ import { m, type MessageResolver } from "../../i18n/messages";
 
 export type ReviewSectionKind = "turn" | "working-tree" | "branch-range";
 
-const CHANGES_SECTION_ID = "git:branch-range";
+export const CHANGES_SECTION_ID = "git:branch-range";
 const CHANGES_TITLE = msg("Changes", { $context: "diff section: branch changes" });
 const UNCOMMITTED_SUBTITLE = msg("Staged, unstaged, and untracked files");
 
