@@ -535,6 +535,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarInboxOldestFirst !== DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst
       ? [gt("Oldest first")]
       : []),
+    ...(settings.sidebarAdvanceAfterSend !== DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend
+      ? [gt("Next thread after sending")]
+      : []),
     ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
       ? [gt("Auto-settle inactive threads")]
       : []),
@@ -723,6 +726,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarInboxOldestFirst: DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst,
+      sidebarAdvanceAfterSend: DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -998,6 +1002,34 @@ export function GeneralSettingsPanel() {
                   updateSettings({ sidebarInboxOldestFirst: Boolean(checked) })
                 }
                 aria-label={gt("Oldest first")}
+              />
+            }
+          />
+        ) : null}
+        {settings.sidebarWorkingShelfEnabled && !settings.boringSidebarEnabled ? (
+          <SettingsRow
+            {...setting("advance-after-send")}
+            description="After you send a message, open the thread at the top of the inbox, or return to the thread you started a new one from. When the inbox is empty, start a new thread."
+            resetAction={
+              settings.sidebarAdvanceAfterSend !==
+              DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend ? (
+                <SettingResetButton
+                  ariaLabel={gt("Reset next thread after sending to default")}
+                  onClick={() =>
+                    updateSettings({
+                      sidebarAdvanceAfterSend: DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.sidebarAdvanceAfterSend}
+                onCheckedChange={(checked) =>
+                  updateSettings({ sidebarAdvanceAfterSend: Boolean(checked) })
+                }
+                aria-label={gt("Next thread after sending")}
               />
             }
           />
