@@ -36,7 +36,10 @@ import {
 } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+
 import { isSecretsFeatureEnabled } from "../../env";
+import { useAdvanceAfterAnswer } from "../../hooks/useAdvanceAfterSend";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -100,6 +103,7 @@ function PendingSecretRequestForm(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const multiple = item.fields !== undefined;
   // A reference answers one value, so a card with fields is always typed.
   const configuredSources = useSecretRequestSources(props.environmentId);
@@ -136,6 +140,7 @@ function PendingSecretRequestForm(props: {
     });
     if (result._tag === "Success") {
       setReference("");
+      advanceAfterAnswer(scopeThreadRef(props.environmentId, item.threadId), item.id);
       return;
     }
     setValues(typed);

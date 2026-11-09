@@ -154,6 +154,18 @@ To work through the active list as a queue, turn on **Settings → General → O
 thread that has waited longest stays at the top, and threads that come back later join at the
 bottom. Each device keeps its own choice.
 
+Turn on **Settings → General → Next thread after sending** to move through that queue as you
+reply. Each message you send opens the first pinned thread that is not working, since pinned
+threads come first, then the thread at the top of the active list. Answering an approval, a
+question, a secret or a link request does the same once nothing else in that thread waits on you,
+including when you decline. Settling or snoozing the thread you have open does the same. When no
+such thread is left, a new thread opens. On web and desktop, while that new thread is still empty,
+the first pinned thread to stop working or thread to come back to the active list opens in its
+place. Each device keeps its own choice. On web and desktop, a new thread you start from another
+thread is the exception:
+sending it takes you back to the thread you left. Sending in the background still keeps you where
+you are.
+
 ### Group threads by project (beta)
 
 Turn on **Settings → Labs → Boring sidebar (group by project)** on web and desktop to put active
