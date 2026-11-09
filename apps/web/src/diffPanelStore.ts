@@ -13,12 +13,21 @@ export interface ToolCallDiffTarget {
   readonly revision: string;
 }
 
-export type DiffPanelSelection =
+/** A file to scroll to. With `fallback`, a file missing from the scope moves to the branch diff. */
+export interface DiffFileReveal {
+  readonly path: string;
+  readonly requestId: number;
+  readonly fallback: boolean;
+}
+
+type DiffPanelScope =
   | ({ kind: "tool-call" } & ToolCallDiffTarget)
   | { kind: "branch"; baseRef: string | null }
   | { kind: "unstaged" }
   | { kind: "commit"; sha: string; baseRef: string | null }
-  | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
+  | { kind: "turn"; turnId: RunId };
+
+export type DiffPanelSelection = DiffPanelScope & { readonly reveal?: DiffFileReveal };
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 
@@ -32,6 +41,9 @@ interface DiffPanelStoreState {
   selectToolCall: (ref: ScopedThreadRef, target: ToolCallDiffTarget) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   selectCommit: (ref: ScopedThreadRef, sha: string, keepOnOpen?: boolean) => void;
+  /** Keeps the current scope unless `fromBranch`, which also survives the pane opening. */
+  revealFile: (ref: ScopedThreadRef, path: string, fromBranch: boolean) => void;
+  settleFileReveal: (ref: ScopedThreadRef, requestId: number, foundPath: string | null) => void;
   consumeKeepSelectionOnOpen: (ref: ScopedThreadRef) => boolean;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
@@ -40,6 +52,10 @@ interface DiffPanelStoreState {
 function normalizeBaseRef(baseRef: string | null): string | null {
   const normalized = baseRef?.trim();
   return normalized ? normalized : null;
+}
+
+function nextRevealRequestId(previous: DiffPanelSelection | undefined): number {
+  return (previous?.reveal?.requestId ?? 0) + 1;
 }
 
 function branchBaseRef(
@@ -109,8 +125,15 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
               [threadKey]: {
                 kind: "turn",
                 turnId,
-                filePath: filePath?.trim() || null,
-                revealRequestId: previous?.kind === "turn" ? previous.revealRequestId + 1 : 1,
+                ...(filePath?.trim()
+                  ? {
+                      reveal: {
+                        path: filePath.trim(),
+                        requestId: nextRevealRequestId(previous),
+                        fallback: false,
+                      },
+                    }
+                  : {}),
               },
             },
           };
@@ -130,6 +153,42 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
               : state.keepSelectionOnOpenThreadKey,
           };
         }),
+      revealFile: (ref, path, fromBranch) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const previous = state.byThreadKey[threadKey];
+          const scope: DiffPanelScope =
+            fromBranch || previous === undefined
+              ? { kind: "branch", baseRef: branchBaseRef(state, threadKey) }
+              : previous;
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: {
+                ...scope,
+                reveal: { path, requestId: nextRevealRequestId(previous), fallback: true },
+              },
+            },
+            keepSelectionOnOpenThreadKey: fromBranch
+              ? threadKey
+              : state.keepSelectionOnOpenThreadKey,
+          };
+        }),
+      settleFileReveal: (ref, requestId, foundPath) => {
+        const state = get();
+        const threadKey = scopedThreadKey(ref);
+        const previous = state.byThreadKey[threadKey];
+        const reveal = previous?.reveal;
+        if (!previous || reveal?.requestId !== requestId || !reveal.fallback) return;
+        const { reveal: _reveal, ...scope } = previous;
+        const next: DiffPanelSelection =
+          foundPath !== null
+            ? { ...scope, reveal: { path: foundPath, requestId, fallback: false } }
+            : scope.kind !== "branch"
+              ? { kind: "branch", baseRef: branchBaseRef(state, threadKey), reveal }
+              : scope;
+        set({ byThreadKey: { ...state.byThreadKey, [threadKey]: next } });
+      },
       consumeKeepSelectionOnOpen: (ref) => {
         if (get().keepSelectionOnOpenThreadKey !== scopedThreadKey(ref)) return false;
         set({ keepSelectionOnOpenThreadKey: null });
