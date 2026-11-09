@@ -507,6 +507,10 @@
       "types": "./src/diffCount.ts",
       "default": "./src/diffCount.ts"
     },
+    "./review-changed-file": {
+      "types": "./src/reviewChangedFile.ts",
+      "default": "./src/reviewChangedFile.ts"
+    },
     "./mcp-apps": {
       "types": "./src/mcpApps/host.ts",
       "default": "./src/mcpApps/host.ts"

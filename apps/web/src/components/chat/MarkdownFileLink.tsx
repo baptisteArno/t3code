@@ -42,6 +42,8 @@ interface MarkdownFileLinkProps {
   threadRef?: ScopedThreadRef | undefined;
   onOpen?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   onOpenInPanel: (panelPath: string, line: number | undefined) => void;
+  /** Opens the file's changes when the branch diff has them, else the preview. */
+  onOpenWithDiff?: (() => void) | undefined;
   resolveCopyPaths: () => Promise<ReturnType<typeof markdownFileCopyPaths>>;
   openInEditorMenuLabel: string;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
@@ -67,6 +69,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
   threadRef,
   onOpen,
   onOpenInPanel,
+  onOpenWithDiff,
   openInEditorMenuLabel,
   onOpenInBrowser,
   onOpenMedia,
@@ -114,7 +117,8 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
 
   const handleOpenInFilePreview = () => {
     if (threadRef && panelPath) {
-      onOpenInPanel(panelPath, line);
+      if (onOpenWithDiff) onOpenWithDiff();
+      else onOpenInPanel(panelPath, line);
       return;
     }
     if (onOpenMedia) {
@@ -250,6 +254,9 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
         [
           ...(onOpenMedia ? ([{ id: "preview-media", label: "Preview media" }] as const) : []),
           ...(onOpen ? ([{ id: "open", label: openInEditorMenuLabel }] as const) : []),
+          ...(onOpenWithDiff && panelPath
+            ? ([{ id: "preview-file", label: "Preview file" }] as const)
+            : []),
           ...(onOpenInBrowser
             ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
             : []),
@@ -270,6 +277,10 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
       }
       if (clicked === "open-in-browser") {
         handleOpenInBrowser();
+        return;
+      }
+      if (clicked === "preview-file") {
+        if (panelPath) onOpenInPanel(panelPath, line);
         return;
       }
       if (clicked === "reveal") {
@@ -413,6 +424,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.isAppBundle === next.isAppBundle &&
     previous.onOpen === next.onOpen &&
     previous.onOpenInPanel === next.onOpenInPanel &&
+    previous.onOpenWithDiff === next.onOpenWithDiff &&
     previous.openInEditorMenuLabel === next.openInEditorMenuLabel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.onOpenMedia === next.onOpenMedia &&
