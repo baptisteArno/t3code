@@ -522,7 +522,7 @@ describe("source context", () => {
         row.id,
       ).toBe(true);
       expect(tokens?.[0]?.color, row.id).toBe(
-        (row.newLineNumber ?? row.oldLineNumber)! <= 4 ? "#5ecc71" : "#737373",
+        (row.newLineNumber ?? row.oldLineNumber)! <= 4 ? "#a6da95" : "#939ab7",
       );
     }
     expect(lineRows.map((row) => row.content)).toEqual(originalContents);
@@ -746,7 +746,7 @@ it("uses full grammar after an oversized line and expands only selected rows in 
   const result = await highlightNativeReviewDiffVisibleRows(input);
   expect(Object.keys(result.tokensByRowId)).toEqual(["body"]);
   expect(result.tokensByRowId.body).toEqual([
-    { content: rows[0]!.content, color: "#737373", fontStyle: 0 },
+    { content: rows[0]!.content, color: "#939ab7", fontStyle: 1 },
   ]);
   const moved = await highlightNativeReviewDiffVisibleRows({
     ...input,
