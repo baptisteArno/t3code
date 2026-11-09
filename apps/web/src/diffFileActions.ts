@@ -6,7 +6,8 @@ import {
   workspaceRelativeFilePath,
 } from "@t3tools/shared/path";
 
-import { useRightPanelStore } from "./rightPanelStore";
+import { useDiffPanelStore } from "./diffPanelStore";
+import { selectActiveRightPanel, useRightPanelStore } from "./rightPanelStore";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 
 interface OpenDiffFilePrimaryActionInput {
@@ -87,6 +88,13 @@ export function resolveDiffPathForWorkspace(input: {
 
   const relativeSegments = fileSegments.slice(workspaceSegments.length);
   return relativeSegments.length > 0 ? relativeSegments.join("/") : null;
+}
+
+export function openFileInDiff(threadRef: ScopedThreadRef, workspacePath: string): void {
+  const diffActive =
+    selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) === "diff";
+  useDiffPanelStore.getState().revealFile(threadRef, workspacePath, !diffActive);
+  useRightPanelStore.getState().open(threadRef, "diff");
 }
 
 export function openDiffFilePrimaryAction({
