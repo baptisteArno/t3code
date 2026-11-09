@@ -14,7 +14,8 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
 const WASM2C_VERSION = "1.0.42";
-const THEMES = { light: "pierre-light", dark: "pierre-dark" } as const;
+// Dark matches the web and desktop code surfaces (apps/web/src/lib/diffRendering.ts).
+const THEMES = { light: "pierre-light", dark: "catppuccin-macchiato" } as const;
 
 const mobileRoot = NodePath.resolve(import.meta.dirname, "..");
 const moduleRoot = NodePath.join(mobileRoot, "modules/t3-highlights");
