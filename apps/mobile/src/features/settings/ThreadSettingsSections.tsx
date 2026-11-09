@@ -215,6 +215,8 @@ export function WorkingSectionSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
   const workingShelfEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
+  const inboxOldestFirst =
+    AsyncResult.isSuccess(preferences) && preferences.value.inboxOldestFirst === true;
 
   return (
     <View className="gap-3">
@@ -227,12 +229,20 @@ export function WorkingSectionSettings() {
             void savePreferences({ workingShelfEnabled: value });
           }}
         />
+        {workingShelfEnabled ? (
+          <SettingsSwitchRow
+            icon="arrow.up.circle"
+            label={gt("Oldest first")}
+            subtitle={gt("The thread that has waited longest stays at the top.")}
+            value={inboxOldestFirst}
+            onValueChange={(value) => savePreferences({ inboxOldestFirst: value })}
+          />
+        ) : null}
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
         <T>
-          Fold working and monitoring threads into a Working section. They return to the top of the
-          list when they need you. While this is on, active threads are ordered by time and cannot
-          be moved.
+          Fold working and monitoring threads into a Working section. They return to the list when
+          they need you. While this is on, active threads are ordered by time and cannot be moved.
         </T>
       </Text>
     </View>

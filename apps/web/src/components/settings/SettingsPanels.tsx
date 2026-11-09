@@ -532,6 +532,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? [gt("Working section")]
       : []),
+    ...(settings.sidebarInboxOldestFirst !== DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst
+      ? [gt("Oldest first")]
+      : []),
     ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
       ? [gt("Auto-settle inactive threads")]
       : []),
@@ -723,6 +726,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
+      sidebarInboxOldestFirst: DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -942,8 +946,8 @@ export function GeneralSettingsPanel() {
           {...setting("working-shelf")}
           description={
             <T>
-              Fold working and monitoring threads into a Working section. They return to the top of
-              the inbox when they need you. The boring sidebar in Labs has no Working section.
+              Fold working and monitoring threads into a Working section. They return to the inbox
+              when they need you. The boring sidebar in Labs has no Working section.
             </T>
           }
           resetAction={
@@ -969,6 +973,39 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        {settings.sidebarWorkingShelfEnabled && !settings.boringSidebarEnabled ? (
+          <SettingsRow
+            {...setting("inbox-oldest-first")}
+            description={
+              <T>
+                The thread that has waited longest stays at the top of the inbox. Threads that come
+                back later join at the bottom.
+              </T>
+            }
+            resetAction={
+              settings.sidebarInboxOldestFirst !==
+              DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst ? (
+                <SettingResetButton
+                  ariaLabel={gt("Reset oldest first to default")}
+                  onClick={() =>
+                    updateSettings({
+                      sidebarInboxOldestFirst: DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.sidebarInboxOldestFirst}
+                onCheckedChange={(checked) =>
+                  updateSettings({ sidebarInboxOldestFirst: Boolean(checked) })
+                }
+                aria-label={gt("Oldest first")}
+              />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="confirmations" title={gt("Confirmations")}>
