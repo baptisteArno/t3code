@@ -218,6 +218,9 @@ describe("createInboxReturnTracker", () => {
       "b",
       "a",
     ]);
+    expect(
+      sortInboxThreadsByReturn([b, a], tracker.returnedAt, true).map((entry) => entry.id),
+    ).toEqual(["a", "b"]);
   });
 
   it("cancels pending timers for removed threads and disabled shelves", () => {
