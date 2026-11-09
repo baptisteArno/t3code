@@ -47,6 +47,7 @@ Keep this list in step with `git log <upstream tag>..custom-nightly`.
 | `chore(fork): releases also ship the linux-x64 …`    | fork only                                                | never                                    |
 | `fix(web): diff file tree shows added and deleted …` | [#33310](https://github.com/pingdotgg/t3code/pull/33310) | #33310 is merged                         |
 | `feat(web): clicking a file the agent mentions …`    | none                                                     | upstream ships an equivalent             |
+| `feat(web): a new thread returns to the one …`       | none                                                     | upstream ships an equivalent             |
 
 ## Adding a change
 
