@@ -27,6 +27,7 @@ import {
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
   shouldNavigateAfterThreadPark,
+  resolveNextThreadAfterSend,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
@@ -923,6 +924,29 @@ describe("navigation after parking a thread", () => {
       ).toBe(expected);
     },
   );
+});
+
+describe("next thread after sending", () => {
+  const local = EnvironmentId.make("environment-local");
+  const remote = EnvironmentId.make("environment-remote");
+  const thread = (environmentId: EnvironmentId, id: string) => ({
+    environmentId,
+    id: ThreadId.make(id),
+  });
+  it.each([
+    ["the top thread", [thread(local, "a"), thread(local, "b")], "c", "a"],
+    ["past the sent thread", [thread(local, "a"), thread(local, "b")], "a", "b"],
+    ["past an unconfigured environment", [thread(remote, "a"), thread(local, "b")], "c", "b"],
+    ["nothing when only the sent thread is left", [thread(local, "a")], "a", null],
+  ] as const)("picks %s", (_, activeThreads, sentId, expected) => {
+    expect(
+      resolveNextThreadAfterSend({
+        activeThreads,
+        sentRef: scopeThreadRef(local, ThreadId.make(sentId)),
+        serverConfigs: new Map([[local, {}]]),
+      })?.threadId ?? null,
+    ).toBe(expected);
+  });
 });
 
 describe("unseen completion with background work", () => {

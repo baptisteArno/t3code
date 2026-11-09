@@ -201,6 +201,8 @@ export function WorkingSectionSettings() {
     AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
   const inboxOldestFirst =
     AsyncResult.isSuccess(preferences) && preferences.value.inboxOldestFirst === true;
+  const advanceAfterSend =
+    AsyncResult.isSuccess(preferences) && preferences.value.advanceAfterSend === true;
 
   return (
     <View className="gap-3">
@@ -218,6 +220,15 @@ export function WorkingSectionSettings() {
             subtitle="The thread that has waited longest stays at the top."
             value={inboxOldestFirst}
             onValueChange={(value) => savePreferences({ inboxOldestFirst: value })}
+          />
+        ) : null}
+        {workingShelfEnabled ? (
+          <SettingsSwitchRow
+            icon="arrow.right.circle"
+            label="Next thread after sending"
+            subtitle="After you send a message, open the thread at the top of the inbox. When the inbox is empty, start a new thread."
+            value={advanceAfterSend}
+            onValueChange={(value) => savePreferences({ advanceAfterSend: value })}
           />
         ) : null}
       </SettingsSection>

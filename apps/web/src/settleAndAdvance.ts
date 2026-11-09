@@ -17,3 +17,23 @@ export function settleAndAdvance(threadRef: ScopedThreadRef): boolean {
   registeredSettleAndAdvance(threadRef);
   return true;
 }
+
+type NextThreadAfterSend = (sentRef: ScopedThreadRef) => ScopedThreadRef | null | undefined;
+
+let registeredNextThreadAfterSend: NextThreadAfterSend | null = null;
+
+export function registerNextThreadAfterSend(handler: NextThreadAfterSend): () => void {
+  registeredNextThreadAfterSend = handler;
+  return () => {
+    if (registeredNextThreadAfterSend === handler) registeredNextThreadAfterSend = null;
+  };
+}
+
+/** Null opens a new thread; undefined keeps the user where they are. */
+export function nextThreadAfterSend(sentRef: ScopedThreadRef): ScopedThreadRef | null | undefined {
+  return registeredNextThreadAfterSend?.(sentRef);
+}
+
+export function nextThreadAfterSendEnabled(): boolean {
+  return registeredNextThreadAfterSend !== null;
+}

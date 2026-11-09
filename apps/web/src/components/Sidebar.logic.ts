@@ -20,6 +20,7 @@ import {
   isListedThreadLineage,
   type ContextMenuItem,
   type EnvironmentId,
+  type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
@@ -57,6 +58,23 @@ export function shouldNavigateAfterThreadPark(input: {
       ? input.thread.settledOverride === "settled"
       : effectiveSnoozed(input.thread, { now: input.now }))
   );
+}
+
+/** The top active thread other than the one just sent to; null when none is left. */
+export function resolveNextThreadAfterSend(input: {
+  readonly activeThreads: readonly Pick<SidebarThreadSummary, "environmentId" | "id">[];
+  readonly sentRef: ScopedThreadRef;
+  readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
+}): ScopedThreadRef | null {
+  const sentKey = scopedThreadKey(input.sentRef);
+  for (const thread of input.activeThreads) {
+    const ref = scopeThreadRef(thread.environmentId, thread.id);
+    // Without its server config, a thread's snooze and settle state is unknown.
+    if (scopedThreadKey(ref) !== sentKey && input.serverConfigs.has(thread.environmentId)) {
+      return ref;
+    }
+  }
+  return null;
 }
 
 const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;

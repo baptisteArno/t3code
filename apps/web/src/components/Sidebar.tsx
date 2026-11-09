@@ -132,7 +132,7 @@ import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
-import { registerSettleAndAdvance } from "../settleAndAdvance";
+import { registerNextThreadAfterSend, registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -213,6 +213,7 @@ import {
   type SidebarListItem,
   type SidebarSection,
   resolveSidebarRowThreadId,
+  resolveNextThreadAfterSend,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -1647,6 +1648,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
+  const advanceAfterSend =
+    useClientSettings((s) => s.sidebarAdvanceAfterSend) && workingShelfEnabled;
+  const nextThreadAfterSend = useStableCallback((sentRef: ScopedThreadRef) =>
+    // Settings and Usage cover the thread without unmounting its ChatView.
+    readRouteThreadKey(router) === scopedThreadKey(sentRef)
+      ? resolveNextThreadAfterSend({ activeThreads, sentRef, serverConfigs })
+      : undefined,
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's active list in the module-level next-thread-after-send registry
+  useEffect(
+    () => (advanceAfterSend ? registerNextThreadAfterSend(nextThreadAfterSend) : undefined),
+    [advanceAfterSend, nextThreadAfterSend],
+  );
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
