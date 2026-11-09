@@ -131,11 +131,18 @@ import {
   useThreadActions,
 } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useOpenThreadAfterSend } from "../hooks/useAdvanceAfterSend";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
-import { registerSettleAndAdvance } from "../settleAndAdvance";
+import {
+  readInboxWait,
+  registerNextThreadAfterSend,
+  registerSettleAndAdvance,
+  takeDraftOrigin,
+  waitForInboxReturn,
+} from "../settleAndAdvance";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -218,6 +225,8 @@ import {
   useThreadJumpHintsVisible,
   type SidebarListItem,
   type SidebarSection,
+  resolveNextThreadAfterSend,
+  resolveInboxWait,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -1643,13 +1652,39 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     navigateToThread(threadRef);
   };
 
+  const advanceAfterSend =
+    useClientSettings((s) => s.sidebarAdvanceAfterSend) && workingShelfEnabled;
+  const openThreadAfterSend = useOpenThreadAfterSend();
+  const nextThreadAfterPark = useStableCallback(
+    (parkedRef: ScopedThreadRef, coParkingKeys: ReadonlySet<string> | undefined) =>
+      resolveNextThreadAfterSend({
+        pinnedThreads,
+        activeThreads,
+        openedFrom: null,
+        leavingRef: parkedRef,
+        skipKeys: coParkingKeys,
+        serverConfigs,
+      }),
+  );
   // Snapshot navigation before partition mutation; background parks use a null plan.
   const planForwardNavigation = (
-    threadKey: string,
+    threadRef: ScopedThreadRef,
     coParkingKeys?: ReadonlySet<string>,
   ): (() => void) | null => {
+    const threadKey = scopedThreadKey(threadRef);
     if (readRouteThreadKey(router) !== threadKey) return null;
     const shell = threadByKeyRef.current.get(threadKey);
+    // The project filter can hide the open thread's row.
+    const parked = advanceAfterSend ? (shell ?? readThreadShell(threadRef)) : null;
+    if (parked) {
+      const projectRef = scopeProjectRef(parked.environmentId, parked.projectId);
+      // The queue is read once the park lands, not when its menu opened.
+      return () => {
+        const next = nextThreadAfterPark(threadRef, coParkingKeys);
+        if (next) void navigateToThread(next);
+        else void openThreadAfterSend(null, null, projectRef);
+      };
+    }
     const orderedKeys = orderedThreadKeysRef.current;
     const settledKeys = settledThreadKeysRef.current;
     const snoozedKeys = snoozedThreadKeysRef.current;
@@ -1676,7 +1711,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
-      const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
+      const navigateAfterSettle = planForwardNavigation(threadRef, opts.coSettlingKeys);
       if (navigateAfterSettle) departRouteThread(threadKey);
       const result = await settleThread(threadRef);
       settlingThreadKeysRef.current.delete(threadKey);
@@ -1711,6 +1746,58 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
+  const nextThreadAfterSend = useStableCallback((sentRef: ScopedThreadRef) => {
+    // Settings and Usage cover the thread without unmounting its ChatView.
+    if (readRouteThreadKey(router) !== scopedThreadKey(sentRef)) return undefined;
+    const originRef = takeDraftOrigin(sentRef);
+    const openedFrom = originRef ? readThreadShell(originRef) : null;
+    return resolveNextThreadAfterSend({
+      pinnedThreads,
+      activeThreads,
+      openedFrom,
+      leavingRef: sentRef,
+      serverConfigs,
+    });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's pinned and active lists in the module-level next-thread-after-send registry
+  useEffect(
+    () => (advanceAfterSend ? registerNextThreadAfterSend(nextThreadAfterSend) : undefined),
+    [advanceAfterSend, nextThreadAfterSend],
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- watches the inbox for the module-level wait an empty-inbox send leaves, and navigates when a thread returns
+  useEffect(() => {
+    const wait = readInboxWait();
+    if (!wait) return;
+    const { open, wait: nextWait } = advanceAfterSend
+      ? resolveInboxWait({
+          wait,
+          routeThreadKey,
+          draftSent: readThreadShell(wait.draftRef) !== null,
+          draftHasContent: composerDraftHasUserContent(
+            useComposerDraftStore.getState().getComposerDraft(wait.draftRef),
+          ),
+          pinnedThreads,
+          activeThreads,
+          workingThreads,
+          serverConfigs,
+        })
+      : { open: null, wait: null };
+    if (nextWait !== wait) waitForInboxReturn(nextWait);
+    if (open) {
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(open),
+      });
+    }
+  }, [
+    advanceAfterSend,
+    routeThreadKey,
+    pinnedThreads,
+    activeThreads,
+    workingThreads,
+    serverConfigs,
+    router,
+  ]);
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
@@ -2243,7 +2330,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       switch (plan.kind) {
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
-          const navigateAfterSettle = planForwardNavigation(activeKey);
+          const navigateAfterSettle = planForwardNavigation(threadRef);
           if (navigateAfterSettle) departRouteThread(activeKey);
           const settled = await run(settleThread(threadRef), gt("Failed to settle thread")).finally(
             () => settlingThreadKeysRef.current.delete(activeKey),
@@ -2314,7 +2401,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return { status: "skipped" } as const;
     }
     snoozingThreadKeysRef.current.add(threadKey);
-    const navigateAfterSnooze = planForwardNavigation(threadKey, opts.coSnoozingKeys);
+    const navigateAfterSnooze = planForwardNavigation(threadRef, opts.coSnoozingKeys);
     if (navigateAfterSnooze) departRouteThread(threadKey);
     const result = await snoozeThread(threadRef, preset.snoozedUntil);
     snoozingThreadKeysRef.current.delete(threadKey);

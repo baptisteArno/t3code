@@ -176,6 +176,7 @@ export interface Preferences {
   /** The kind of question the Workflows tab's Needs you list was last narrowed to. */
   readonly workflowQuestionKind?: string;
   readonly inboxOldestFirst?: boolean;
+  readonly advanceAfterSend?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -270,6 +271,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workingShelfEnabled?: boolean;
     workflowQuestionKind?: string;
     inboxOldestFirst?: boolean;
+    advanceAfterSend?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -423,6 +425,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.inboxOldestFirst === "boolean") {
     preferences.inboxOldestFirst = parsed.inboxOldestFirst;
+  }
+  if (typeof parsed.advanceAfterSend === "boolean") {
+    preferences.advanceAfterSend = parsed.advanceAfterSend;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;

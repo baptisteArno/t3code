@@ -3867,6 +3867,8 @@
   "d9b0fbd680d5f175": "Barre latérale",
   "bdf39fd139a04325": "Section En cours",
   "9b84f5d1b1d24122": "Le fil qui attend depuis le plus longtemps reste en haut.",
+  "b48f8a811918fcae": "Fil suivant après l’envoi",
+  "79aad632a10bf28e": "Après l’envoi d’un message, la réponse à une demande, ou la clôture ou le report du fil ouvert, ouvre le premier fil de la boîte de réception. Si la boîte de réception est vide, commence un nouveau fil.",
   "b0c77717b7d7b4a3": "Nouveaux fils",
   "8c8cf0bc2721cb2c": "Utiliser le dernier projet",
   "7d8bec2dc3f0e1a6": "Démarre les nouveaux fils dans le dernier projet utilisé sur cet appareil.",
