@@ -2,6 +2,7 @@ import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
@@ -48,6 +49,7 @@ import { deadlineAfter, deadlineStore, type ClockStore } from "@t3tools/client-r
 import { useDeadlinePassed } from "../hooks/useDeadline";
 import { legacyProjectCwdPreferenceKey } from "../uiStateStore";
 import { isElectron } from "../env";
+import type { InboxWait } from "../settleAndAdvance";
 import { shouldShowThreadJumpHintsForModifiers } from "../keybindings";
 import { isTerminalFocused, subscribeToTerminalFocusChanges } from "../lib/terminalFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -70,6 +72,84 @@ export function shouldNavigateAfterThreadPark(input: {
       ? input.thread.settledOverride === "settled"
       : effectiveSnoozed(input.thread, { now: input.now }))
   );
+}
+
+type QueueThread = Pick<SidebarThreadSummary, "environmentId" | "id">;
+type PinnedQueueThread = QueueThread & Parameters<typeof isThreadWorking>[0];
+
+/**
+ * The thread a sent draft was opened from, else the first pinned thread not working, else the top
+ * active thread, other than `leavingRef` and the threads in `skipKeys`; null when none is left.
+ */
+export function resolveNextThreadAfterSend(input: {
+  readonly pinnedThreads: readonly PinnedQueueThread[];
+  readonly activeThreads: readonly QueueThread[];
+  readonly openedFrom: Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id"> | null;
+  readonly leavingRef: ScopedThreadRef;
+  readonly skipKeys?: ReadonlySet<string> | undefined;
+  readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
+}): ScopedThreadRef | null {
+  if (input.openedFrom && input.openedFrom.archivedAt === null) {
+    return scopeThreadRef(input.openedFrom.environmentId, input.openedFrom.id);
+  }
+  const leavingKey = scopedThreadKey(input.leavingRef);
+  const queue = [
+    ...input.pinnedThreads.filter((thread) => !isThreadWorking(thread)),
+    ...input.activeThreads,
+  ];
+  for (const thread of queue) {
+    const ref = scopeThreadRef(thread.environmentId, thread.id);
+    const key = scopedThreadKey(ref);
+    // Without its server config, a thread's snooze and settle state is unknown.
+    if (
+      key !== leavingKey &&
+      !input.skipKeys?.has(key) &&
+      input.serverConfigs.has(thread.environmentId)
+    ) {
+      return ref;
+    }
+  }
+  return null;
+}
+
+/**
+ * While the user stays on the empty draft opened for an empty inbox, the first thread back in the
+ * inbox, or the first pinned thread to stop working, opens. The sent thread is skipped until it has
+ * shown as working, then its return counts.
+ */
+export function resolveInboxWait(input: {
+  readonly wait: InboxWait;
+  readonly routeThreadKey: string | null;
+  readonly draftSent: boolean;
+  readonly draftHasContent: boolean;
+  readonly pinnedThreads: readonly PinnedQueueThread[];
+  readonly activeThreads: readonly QueueThread[];
+  readonly workingThreads: readonly QueueThread[];
+  readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
+}): { readonly open: ScopedThreadRef | null; readonly wait: InboxWait | null } {
+  const { wait } = input;
+  if (input.draftSent || input.routeThreadKey !== scopedThreadKey(wait.draftRef)) {
+    return { open: null, wait: null };
+  }
+  const sentKey = wait.sentRef ? scopedThreadKey(wait.sentRef) : null;
+  const isSent = (thread: QueueThread) =>
+    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === sentKey;
+  const sentRef =
+    input.workingThreads.some(isSent) ||
+    input.pinnedThreads.some((thread) => isSent(thread) && isThreadWorking(thread))
+      ? null
+      : wait.sentRef;
+  const open = input.draftHasContent
+    ? null
+    : resolveNextThreadAfterSend({
+        pinnedThreads: input.pinnedThreads,
+        activeThreads: input.activeThreads,
+        openedFrom: null,
+        leavingRef: sentRef ?? wait.draftRef,
+        serverConfigs: input.serverConfigs,
+      });
+  if (open) return { open, wait: null };
+  return { open: null, wait: sentRef === wait.sentRef ? wait : { ...wait, sentRef } };
 }
 
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;

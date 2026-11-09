@@ -29,6 +29,8 @@ import {
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
   shouldNavigateAfterThreadPark,
+  resolveNextThreadAfterSend,
+  resolveInboxWait,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
@@ -973,6 +975,161 @@ describe("navigation after parking a thread", () => {
       ).toBe(expected);
     },
   );
+});
+
+describe("next thread after sending", () => {
+  const local = EnvironmentId.make("environment-local");
+  const remote = EnvironmentId.make("environment-remote");
+  const thread = (environmentId: EnvironmentId, id: string, archivedAt: string | null = null) => ({
+    archivedAt,
+    environmentId,
+    id: ThreadId.make(id),
+  });
+  const pinned = (id: string, working = false) => ({
+    ...thread(local, id),
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    pendingSubagentRequest: null,
+    interactionMode: "default" as const,
+    latestRun: null,
+    runtime: working
+      ? {
+          status: "running" as const,
+          activeRunId: null,
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          providerName: "Codex",
+          lastError: null,
+          updatedAt: "2026-11-12T00:00:00.000Z",
+        }
+      : null,
+  });
+  it.each([
+    ["the top thread", [], [thread(local, "a"), thread(local, "b")], null, "c", "a"],
+    ["past the sent thread", [], [thread(local, "a"), thread(local, "b")], null, "a", "b"],
+    [
+      "past an unconfigured environment",
+      [],
+      [thread(remote, "a"), thread(local, "b")],
+      null,
+      "c",
+      "b",
+    ],
+    ["nothing when only the sent thread is left", [], [thread(local, "a")], null, "a", null],
+    ["a pinned thread not working first", [pinned("p")], [thread(local, "a")], null, "c", "p"],
+    ["past a working pinned thread", [pinned("p", true)], [thread(local, "a")], null, "c", "a"],
+    ["past the sent pinned thread", [pinned("p")], [thread(local, "a")], null, "p", "a"],
+    ["a pinned thread when none is active", [pinned("p")], [], null, "c", "p"],
+    [
+      "the thread the draft was opened from",
+      [pinned("p")],
+      [thread(local, "a")],
+      thread(local, "w"),
+      "c",
+      "w",
+    ],
+    [
+      "the top thread when the draft's origin was archived",
+      [],
+      [thread(local, "a")],
+      thread(local, "w", "2026-11-09T00:00:00.000Z"),
+      "c",
+      "a",
+    ],
+    [
+      "past threads settled or snoozed with it",
+      [pinned("p")],
+      [thread(local, "a"), thread(local, "b")],
+      null,
+      "c",
+      "b",
+      ["p", "a"],
+    ],
+  ] as const)(
+    "picks %s",
+    (
+      _,
+      pinnedThreads,
+      activeThreads,
+      openedFrom,
+      sentId,
+      expected,
+      skipIds: readonly string[] = [],
+    ) => {
+      expect(
+        resolveNextThreadAfterSend({
+          pinnedThreads,
+          activeThreads,
+          openedFrom,
+          leavingRef: scopeThreadRef(local, ThreadId.make(sentId)),
+          skipKeys: new Set(
+            skipIds.map((id) => scopedThreadKey(scopeThreadRef(local, ThreadId.make(id)))),
+          ),
+          serverConfigs: new Map([[local, {}]]),
+        })?.threadId ?? null,
+      ).toBe(expected);
+    },
+  );
+
+  describe("on the empty draft opened for an empty inbox", () => {
+    const draft = thread(local, "draft");
+    const sent = thread(local, "sent");
+    const wait = {
+      draftRef: scopeThreadRef(local, draft.id),
+      sentRef: scopeThreadRef(local, sent.id),
+    };
+    const resolve = (overrides: Partial<Parameters<typeof resolveInboxWait>[0]> = {}) =>
+      resolveInboxWait({
+        wait,
+        routeThreadKey: scopedThreadKey(wait.draftRef),
+        draftSent: false,
+        draftHasContent: false,
+        pinnedThreads: [],
+        activeThreads: [],
+        workingThreads: [],
+        serverConfigs: new Map([[local, {}]]),
+        ...overrides,
+      });
+    it.each([
+      ["opens a thread that returns", { activeThreads: [thread(local, "b")] }, "b", wait],
+      ["opens a pinned thread that stops working", { pinnedThreads: [pinned("p")] }, "p", wait],
+      [
+        "keeps waiting while pinned threads work",
+        { pinnedThreads: [pinned("p", true)] },
+        null,
+        wait,
+      ],
+      ["keeps waiting while the inbox is empty", {}, null, wait],
+      ["skips the sent thread before it works", { activeThreads: [sent] }, null, wait],
+      [
+        "keeps a typed draft",
+        { activeThreads: [thread(local, "b")], draftHasContent: true },
+        null,
+        wait,
+      ],
+      ["stops once the user leaves", { routeThreadKey: "elsewhere" }, null, null],
+      ["stops once the draft is sent", { draftSent: true }, null, null],
+    ] as const)("%s", (_, overrides, expectedOpen, expectedWait) => {
+      const result = resolve(overrides);
+      expect(result.open?.threadId ?? null).toBe(expectedOpen);
+      expect(result.wait).toEqual(expectedOpen ? null : expectedWait);
+    });
+
+    it("opens the sent thread once it worked and came back", () => {
+      const worked = resolve({ workingThreads: [sent] });
+      expect(worked).toEqual({ open: null, wait: { ...wait, sentRef: null } });
+      expect(resolve({ wait: worked.wait!, activeThreads: [sent] }).open?.threadId).toBe("sent");
+    });
+
+    it("opens the sent pinned thread once it worked and stopped", () => {
+      const worked = resolve({ pinnedThreads: [pinned("sent", true)] });
+      expect(worked).toEqual({ open: null, wait: { ...wait, sentRef: null } });
+      expect(resolve({ pinnedThreads: [pinned("sent")] }).open).toBeNull();
+      expect(resolve({ wait: worked.wait!, pinnedThreads: [pinned("sent")] }).open?.threadId).toBe(
+        "sent",
+      );
+    });
+  });
 });
 
 describe("unseen completion with background work", () => {
