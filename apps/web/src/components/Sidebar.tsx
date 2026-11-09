@@ -131,7 +131,11 @@ import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
-import { registerSettleAndAdvance } from "../settleAndAdvance";
+import {
+  registerNextThreadAfterSend,
+  registerSettleAndAdvance,
+  takeDraftOrigin,
+} from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -212,6 +216,7 @@ import {
   useThreadJumpHintsVisible,
   type SidebarListItem,
   type SidebarSection,
+  resolveNextThreadAfterSend,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -1656,6 +1661,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
+  const advanceAfterSend =
+    useClientSettings((s) => s.sidebarAdvanceAfterSend) && workingShelfEnabled;
+  const nextThreadAfterSend = useStableCallback((sentRef: ScopedThreadRef) => {
+    // Settings and Usage cover the thread without unmounting its ChatView.
+    if (readRouteThreadKey(router) !== scopedThreadKey(sentRef)) return undefined;
+    const originRef = takeDraftOrigin(sentRef);
+    const openedFrom = originRef ? readThreadShell(originRef) : null;
+    return resolveNextThreadAfterSend({ activeThreads, openedFrom, sentRef, serverConfigs });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's active list in the module-level next-thread-after-send registry
+  useEffect(
+    () => (advanceAfterSend ? registerNextThreadAfterSend(nextThreadAfterSend) : undefined),
+    [advanceAfterSend, nextThreadAfterSend],
+  );
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
