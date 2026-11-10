@@ -6,7 +6,12 @@ import assetLinks from "../web/public/.well-known/assetlinks.json";
 
 // Keep config parsing independent of local env files and build credentials.
 vi.mock("../../scripts/lib/public-config.ts", () => ({
-  loadRepoEnv: () => ({ APP_VARIANT: process.env.APP_VARIANT }),
+  loadRepoEnv: () =>
+    Object.fromEntries(
+      ["APP_VARIANT", "T3CODE_IOS_TEAM_ID", "T3CODE_IOS_BUNDLE_ID"].flatMap((key) =>
+        process.env[key] === undefined ? [] : [[key, process.env[key]]],
+      ),
+    ),
 }));
 
 afterEach(() => {
@@ -44,4 +49,28 @@ it.each([
     { scheme: "https", host, pathPrefix: "/threads/" },
   ]);
   expect(assetLinks.map((link) => link.target.package_name)).toContain(identifier);
+});
+
+it("signs with another paid team without T3's domains, Apple sign-in or OTA project", async () => {
+  vi.stubEnv("T3CODE_IOS_TEAM_ID", "ABCDE12345");
+  vi.stubEnv("T3CODE_IOS_BUNDLE_ID", "com.example.t3code");
+  const config = await loadConfig("production");
+  expect(config.ios?.appleTeamId).toBe("ABCDE12345");
+  expect(config.ios?.bundleIdentifier).toBe("com.example.t3code");
+  // T3's apple-app-site-association lists only T3's team, so these could never verify.
+  expect(config.ios?.associatedDomains).toBeUndefined();
+  expect(config.updates?.enabled).toBe(false);
+  expect(config.plugins).toContainEqual([
+    "@clerk/expo",
+    expect.objectContaining({ appleSignIn: false }),
+  ]);
+  expect(config.plugins).toContainEqual(["./plugins/withIosDevelopmentTeam.cjs", "ABCDE12345"]);
+  // Widgets and the share extension stay: a paid team can sign their App Group.
+  expect(JSON.stringify(config.plugins)).toContain("group.com.example.t3code");
+});
+
+it("rejects another team without a bundle identifier of its own", async () => {
+  vi.stubEnv("T3CODE_IOS_TEAM_ID", "ABCDE12345");
+  vi.stubEnv("T3CODE_IOS_BUNDLE_ID", "");
+  await expect(loadConfig("production")).rejects.toThrow("T3CODE_IOS_BUNDLE_ID");
 });
