@@ -38,6 +38,23 @@ if (
   );
 }
 
+// A paid team other than T3's keeps every capability, but T3's domains and OTA project list only T3's apps.
+const ownTeamId = repoEnv.T3CODE_IOS_TEAM_ID?.trim() || undefined;
+const ownTeamBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
+const iosBuildNumber = repoEnv.T3CODE_IOS_BUILD_NUMBER?.trim() || undefined;
+
+if (ownTeamId && isIosPersonalTeamBuild) {
+  throw new Error("Set either T3CODE_IOS_TEAM_ID or T3CODE_IOS_PERSONAL_TEAM=1, not both.");
+}
+if (
+  ownTeamId &&
+  (!ownTeamBundleIdentifier || !IOS_BUNDLE_IDENTIFIER_PATTERN.test(ownTeamBundleIdentifier))
+) {
+  throw new Error(
+    "T3CODE_IOS_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_TEAM_ID is set.",
+  );
+}
+
 const DEVELOPMENT_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIconComposerProject),
@@ -122,7 +139,9 @@ const variant = VARIANT_CONFIG[APP_VARIANT];
 const HOSTED_APP_HOST = "app.t3.codes";
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
-  : variant.iosBundleIdentifier;
+  : ownTeamId
+    ? ownTeamBundleIdentifier!
+    : variant.iosBundleIdentifier;
 
 const dmSansFonts = {
   regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -130,7 +149,9 @@ const dmSansFonts = {
   bold: "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf",
 } as const;
 
-const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
+type Plugin = NonNullable<ExpoConfig["plugins"]>[number];
+
+const widgetsPlugin: Plugin = [
   "expo-widgets",
   {
     bundleIdentifier: `${iosBundleIdentifier}.widgets`,
@@ -206,7 +227,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   },
 ];
 
-const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
+const sharingPlugin: Plugin = [
   "expo-sharing",
   {
     ios: {
@@ -246,7 +267,7 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
+    enabled: !ownTeamId && repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
     url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
@@ -256,13 +277,18 @@ const config: ExpoConfig = {
     supportsTablet: true,
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
+    ...(iosBuildNumber ? { buildNumber: iosBuildNumber } : {}),
     // Avoid Personal Team fallback: it cannot sign App Groups, Apple sign-in or push entitlements.
-    appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-      `applinks:${HOSTED_APP_HOST}`,
-    ],
+    appleTeamId: ownTeamId ?? "ARK85ZXQ4Z",
+    ...(ownTeamId
+      ? {}
+      : {
+          associatedDomains: [
+            `applinks:${variant.relyingParty}`,
+            `webcredentials:${variant.relyingParty}`,
+            `applinks:${HOSTED_APP_HOST}`,
+          ],
+        }),
     entitlements: {
       "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
     },
@@ -325,6 +351,8 @@ const config: ExpoConfig = {
     favicon: variant.assets.appIcon,
   },
   plugins: [
+    // Mods run in reverse order; first in the list, it sees the extension targets other plugins add.
+    ...(ownTeamId ? [["./plugins/withIosDevelopmentTeam.cjs", ownTeamId] satisfies Plugin] : []),
     "expo-asset",
     [
       "expo-font",
@@ -364,7 +392,10 @@ const config: ExpoConfig = {
       },
     ],
     // Gate Clerk here: withoutIosPersonalTeamCapabilities runs too early to strip its entitlement.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    [
+      "@clerk/expo",
+      { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild && !ownTeamId },
+    ],
     "expo-web-browser",
     [
       "expo-quick-actions",
