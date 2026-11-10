@@ -371,6 +371,34 @@ describe("describeUpdateEverything", () => {
       ["TheoRoom", null, "not connected", []],
     ]);
   });
+
+  it("offers a run only when a T3 Code release is available, carrying provider updates along", () => {
+    const id = EnvironmentId.make;
+    const providerMachines = [
+      { environmentId: id("local"), label: "Mainbook", providers: ["Codex"] },
+    ];
+    const server = {
+      environmentId: id("npm"),
+      serverLabel: "bb-1",
+      selfUpdate: "respawn",
+      targetVersion: "1.1.0",
+    } as const;
+    const offers = (plan: Partial<Parameters<typeof describeUpdateEverything>[0]>) =>
+      describeUpdateEverything({
+        localVersion: null,
+        localMachines: [],
+        servers: [],
+        providerMachines: [],
+        skipped: [],
+        ...plan,
+      }).hasUpdates;
+
+    expect(offers({ providerMachines })).toBe(false);
+    expect(offers({ localVersion: "1.1.0", providerMachines })).toBe(true);
+    expect(offers({ servers: [server] })).toBe(true);
+    // A lone app update keeps the plain download and install button.
+    expect(offers({ localVersion: "1.1.0" })).toBe(false);
+  });
 });
 
 describe("describeUpdateCapsule", () => {
