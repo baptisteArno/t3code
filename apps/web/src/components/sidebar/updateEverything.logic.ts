@@ -861,6 +861,7 @@ export function describeUpdateEverything(
   plan: UpdateEverythingPlan,
   resolve: MessageResolver = m,
 ): {
+  readonly hasUpdates: boolean;
   readonly summary: string;
   readonly version: string | null;
   readonly providerCount: number;
@@ -917,6 +918,9 @@ export function describeUpdateEverything(
   }
 
   return {
+    // Provider updates alone do not offer a run; they ride along with the next T3 Code release.
+    hasUpdates:
+      plan.servers.length > 0 || (plan.localVersion !== null && plan.providerMachines.length > 0),
     summary,
     version:
       plan.localVersion ??
