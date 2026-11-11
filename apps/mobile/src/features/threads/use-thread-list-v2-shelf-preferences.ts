@@ -1,4 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { DEFAULT_INBOX_QUICK_REPLY_MINUTES } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
@@ -13,6 +14,9 @@ export function useThreadListV2ShelfPreferences() {
     loaded && preferencesResult.value.threadListSettledShelfExpanded === true;
   const workingShelfEnabled = loaded && preferencesResult.value.workingShelfEnabled !== false;
   const inboxOldestFirst = loaded && preferencesResult.value.inboxOldestFirst === true;
+  const inboxQuickReplyMinutes =
+    (loaded ? preferencesResult.value.inboxQuickReplyMinutes : undefined) ??
+    DEFAULT_INBOX_QUICK_REPLY_MINUTES;
   const advanceAfterSend =
     loaded && workingShelfEnabled && preferencesResult.value.advanceAfterSend === true;
   const workingShelfExpanded =
@@ -50,6 +54,7 @@ export function useThreadListV2ShelfPreferences() {
     snoozedShelfExpanded,
     workingShelfEnabled,
     inboxOldestFirst,
+    inboxQuickReplyMinutes,
     advanceAfterSend,
     workingShelfExpanded,
     toggleSettledShelf,
