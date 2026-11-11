@@ -18,7 +18,7 @@ import {
   PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
-import { ToolCallVisibility } from "@t3tools/contracts/settings";
+import { MAX_INBOX_QUICK_REPLY_MINUTES, ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { MobileFontId, MobileMonoFontId } from "../lib/fontFamilies";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
@@ -179,6 +179,7 @@ export interface Preferences {
   /** The kind of question the Workflows tab's Needs you list was last narrowed to. */
   readonly workflowQuestionKind?: string;
   readonly inboxOldestFirst?: boolean;
+  readonly inboxQuickReplyMinutes?: number;
   readonly advanceAfterSend?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
@@ -276,6 +277,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workingShelfEnabled?: boolean;
     workflowQuestionKind?: string;
     inboxOldestFirst?: boolean;
+    inboxQuickReplyMinutes?: number;
     advanceAfterSend?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
@@ -434,6 +436,15 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.inboxOldestFirst === "boolean") {
     preferences.inboxOldestFirst = parsed.inboxOldestFirst;
+  }
+  const quickReplyMinutes = parsed.inboxQuickReplyMinutes;
+  if (
+    typeof quickReplyMinutes === "number" &&
+    Number.isInteger(quickReplyMinutes) &&
+    quickReplyMinutes >= 0 &&
+    quickReplyMinutes <= MAX_INBOX_QUICK_REPLY_MINUTES
+  ) {
+    preferences.inboxQuickReplyMinutes = quickReplyMinutes;
   }
   if (typeof parsed.advanceAfterSend === "boolean") {
     preferences.advanceAfterSend = parsed.advanceAfterSend;

@@ -51,13 +51,28 @@ export function asLaunchingThread<T extends EnvironmentThreadShell>(thread: T): 
 
 type InboxThreadInput = Pick<
   EnvironmentThreadShell,
-  "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun"
->;
+  | "id"
+  | "environmentId"
+  | "createdAt"
+  | "unsettledAt"
+  | "latestRun"
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "interactionMode"
+  | "hasActionableProposedPlan"
+> &
+  Partial<Pick<EnvironmentThreadShell, "latestUserAuthoredMessageAt" | "pendingSubagentRequest">>;
 
+/**
+ * Oldest first puts threads that need the user now ahead of the queue: one waiting on an
+ * answer, an approval or a plan, and one that answered within `quickReplyMinutes` of the
+ * user's message. 0 turns the quick-reply rule off.
+ */
 export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
   threads: readonly T[],
   observedReturnAt?: (thread: T) => number | undefined,
   oldestFirst = false,
+  quickReplyMinutes = 0,
 ): T[] {
   const timestamps = new Map(
     threads.map((thread) => [
@@ -72,7 +87,33 @@ export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
     ]),
   );
   const newestFirst = sortNewestFirst(threads, timestamps);
-  return oldestFirst ? newestFirst.reverse() : newestFirst;
+  if (!oldestFirst) return newestFirst;
+  const queue = newestFirst.reverse();
+  const needsYouNow = (thread: T) =>
+    isWaitingOnUser(thread) || answeredWithin(thread, quickReplyMinutes * 60_000);
+  return [...queue.filter(needsYouNow), ...queue.filter((thread) => !needsYouNow(thread))];
+}
+
+function isWaitingOnUser(thread: InboxThreadInput): boolean {
+  return (
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    thread.pendingSubagentRequest != null ||
+    (thread.interactionMode === "plan" && thread.hasActionableProposedPlan)
+  );
+}
+
+function answeredWithin(thread: InboxThreadInput, windowMs: number): boolean {
+  if (windowMs <= 0 || thread.latestRun?.status !== "completed") return false;
+  // Measured from the user's message, so a run the agent started itself is never a quick reply.
+  const sentAt = toSortableTimestamp(
+    (thread.latestUserAuthoredMessageAt === undefined
+      ? thread.latestRun?.requestedAt
+      : thread.latestUserAuthoredMessageAt) ?? undefined,
+  );
+  const answeredAt = toSortableTimestamp(thread.latestRun?.completedAt ?? undefined);
+  if (sentAt === null || answeredAt === null) return false;
+  return answeredAt >= sentAt && answeredAt - sentAt <= windowMs;
 }
 
 type WorkingSortInput = Pick<
