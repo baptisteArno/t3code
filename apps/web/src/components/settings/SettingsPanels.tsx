@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_UNIFIED_SETTINGS,
   type DiffLayout,
+  MAX_INBOX_QUICK_REPLY_MINUTES,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
@@ -535,6 +536,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarInboxOldestFirst !== DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst
       ? [gt("Oldest first")]
       : []),
+    ...(settings.sidebarInboxQuickReplyMinutes !==
+    DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes
+      ? [gt("Quick reply window")]
+      : []),
     ...(settings.sidebarAdvanceAfterSend !== DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend
       ? [gt("Next thread after sending")]
       : []),
@@ -726,6 +731,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarInboxOldestFirst: DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst,
+      sidebarInboxQuickReplyMinutes: DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes,
       sidebarAdvanceAfterSend: DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
@@ -827,6 +833,43 @@ function AutoSettleDaysInput({
         }
       }}
       aria-label={gt("Days of inactivity before auto-settle")}
+    />
+  );
+}
+
+/** Saves each valid value as it is typed; the window is a per-device client setting. */
+function QuickReplyMinutesInput({
+  value,
+  onCommit,
+}: {
+  value: number;
+  onCommit: (minutes: number) => void;
+}) {
+  const gt = useGT();
+  const [draft, setDraft] = useState(String(value));
+  const [draftSource, setDraftSource] = useState(value);
+  if (draftSource !== value) {
+    setDraftSource(value);
+    setDraft(String(value));
+  }
+
+  return (
+    <Input
+      size="sm"
+      type="number"
+      min={0}
+      max={MAX_INBOX_QUICK_REPLY_MINUTES}
+      className="w-full sm:w-24"
+      value={draft}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        const parsed = Number(event.target.value);
+        if (Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_INBOX_QUICK_REPLY_MINUTES) {
+          onCommit(parsed);
+        }
+      }}
+      onBlur={() => setDraft(String(value))}
+      aria-label={gt("Quick reply window in minutes")}
     />
   );
 }
@@ -1002,6 +1045,40 @@ export function GeneralSettingsPanel() {
                   updateSettings({ sidebarInboxOldestFirst: Boolean(checked) })
                 }
                 aria-label={gt("Oldest first")}
+              />
+            }
+          />
+        ) : null}
+        {settings.sidebarWorkingShelfEnabled &&
+        !settings.boringSidebarEnabled &&
+        settings.sidebarInboxOldestFirst ? (
+          <SettingsRow
+            {...setting("inbox-quick-reply-minutes")}
+            description={
+              <T>
+                A thread that answers within this many minutes of your message goes to the top,
+                while you still have its context. So does a thread waiting on your answer or
+                approval. Set 0 to lift only those.
+              </T>
+            }
+            resetAction={
+              settings.sidebarInboxQuickReplyMinutes !==
+              DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes ? (
+                <SettingResetButton
+                  ariaLabel={gt("Reset quick reply window to default")}
+                  onClick={() =>
+                    updateSettings({
+                      sidebarInboxQuickReplyMinutes:
+                        DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <QuickReplyMinutesInput
+                value={settings.sidebarInboxQuickReplyMinutes}
+                onCommit={(minutes) => updateSettings({ sidebarInboxQuickReplyMinutes: minutes })}
               />
             }
           />
