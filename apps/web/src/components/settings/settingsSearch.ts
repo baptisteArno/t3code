@@ -469,6 +469,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sort order reverse queue inbox threads sidebar newest"],
   },
   {
+    id: "inbox-quick-reply-minutes",
+    title: "Quick reply window",
+    to: "/settings/general",
+    targetId: "working-shelf",
+    searchTerms: ["fast answer fresh context needs you question top oldest first minutes"],
+  },
+  {
     id: "advance-after-send",
     title: "Next thread after sending",
     to: "/settings/general",

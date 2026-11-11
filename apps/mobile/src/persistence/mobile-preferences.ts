@@ -14,7 +14,7 @@ import {
   type PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
-import { ToolCallVisibility } from "@t3tools/contracts/settings";
+import { MAX_INBOX_QUICK_REPLY_MINUTES, ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
@@ -119,6 +119,7 @@ export interface Preferences {
   readonly toolCallVisibility?: ToolCallVisibility;
   readonly workingShelfEnabled?: boolean;
   readonly inboxOldestFirst?: boolean;
+  readonly inboxQuickReplyMinutes?: number;
   readonly advanceAfterSend?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
@@ -205,6 +206,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     toolCallVisibility?: ToolCallVisibility;
     workingShelfEnabled?: boolean;
     inboxOldestFirst?: boolean;
+    inboxQuickReplyMinutes?: number;
     advanceAfterSend?: boolean;
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
@@ -336,6 +338,15 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.inboxOldestFirst === "boolean") {
     preferences.inboxOldestFirst = parsed.inboxOldestFirst;
+  }
+  const quickReplyMinutes = parsed.inboxQuickReplyMinutes;
+  if (
+    typeof quickReplyMinutes === "number" &&
+    Number.isInteger(quickReplyMinutes) &&
+    quickReplyMinutes >= 0 &&
+    quickReplyMinutes <= MAX_INBOX_QUICK_REPLY_MINUTES
+  ) {
+    preferences.inboxQuickReplyMinutes = quickReplyMinutes;
   }
   if (typeof parsed.advanceAfterSend === "boolean") {
     preferences.advanceAfterSend = parsed.advanceAfterSend;
