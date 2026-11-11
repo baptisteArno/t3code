@@ -747,6 +747,7 @@ export function buildThreadListV2Items(input: {
   readonly now: string;
   readonly workingShelfEnabled?: boolean;
   readonly inboxOldestFirst?: boolean;
+  readonly inboxQuickReplyMinutes?: number;
   readonly workingShelfExpanded?: boolean;
   readonly isWorking?: (thread: EnvironmentThreadShell) => boolean;
   readonly inboxReturnAt?: (thread: EnvironmentThreadShell) => number | undefined;
@@ -842,7 +843,12 @@ export function buildThreadListV2Items(input: {
   }
 
   const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt, input.inboxOldestFirst)
+    ? sortInboxThreadsByReturn(
+        active,
+        input.inboxReturnAt,
+        input.inboxOldestFirst,
+        input.inboxQuickReplyMinutes,
+      )
     : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
 
   if (rankedMatches !== null) {
