@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { useEnvironmentsWithScope } from "../../state/session";
 import { AutoSettleDaysField } from "./components/AutoSettleDaysField";
+import { NumberField } from "../../components/ui/NumberField";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
@@ -13,7 +14,11 @@ import type { ComponentProps } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import {
+  DEFAULT_INBOX_QUICK_REPLY_MINUTES,
+  DEFAULT_SERVER_SETTINGS,
+  MAX_INBOX_QUICK_REPLY_MINUTES,
+} from "@t3tools/contracts";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { AppText as Text } from "../../components/ui/AppText";
 import { useEnvironments } from "../../state/environments";
@@ -201,6 +206,9 @@ export function WorkingSectionSettings() {
     AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
   const inboxOldestFirst =
     AsyncResult.isSuccess(preferences) && preferences.value.inboxOldestFirst === true;
+  const inboxQuickReplyMinutes =
+    (AsyncResult.isSuccess(preferences) ? preferences.value.inboxQuickReplyMinutes : undefined) ??
+    DEFAULT_INBOX_QUICK_REPLY_MINUTES;
   const advanceAfterSend =
     AsyncResult.isSuccess(preferences) && preferences.value.advanceAfterSend === true;
 
@@ -222,6 +230,22 @@ export function WorkingSectionSettings() {
             onValueChange={(value) => savePreferences({ inboxOldestFirst: value })}
           />
         ) : null}
+        {workingShelfEnabled && inboxOldestFirst ? (
+          <View className="flex-row items-center gap-4 px-4 py-4 android:min-h-14 android:py-3">
+            <View className="w-[22px] android:w-6" />
+            <Text className="flex-1 text-foreground text-lg android:text-base">
+              Quick reply window
+            </Text>
+            <NumberField
+              value={inboxQuickReplyMinutes}
+              min={0}
+              max={MAX_INBOX_QUICK_REPLY_MINUTES}
+              label="Quick reply window"
+              formatValue={(value) => `${value} min`}
+              onValueChange={(value) => savePreferences({ inboxQuickReplyMinutes: value })}
+            />
+          </View>
+        ) : null}
         {workingShelfEnabled ? (
           <SettingsSwitchRow
             icon="arrow.right.circle"
@@ -235,6 +259,9 @@ export function WorkingSectionSettings() {
       <Text className="px-2 text-sm text-foreground-muted">
         Fold working and monitoring threads into a Working section. They return to the list when
         they need you. While this is on, active threads are ordered by time and cannot be moved.
+        With Oldest first, a thread that answers within the quick reply window of your message, or
+        waits on your answer or approval, goes to the top. Set the window to 0 to lift only those
+        waiting on you.
       </Text>
     </View>
   );
