@@ -95,6 +95,11 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 7;
+export const MAX_INBOX_QUICK_REPLY_MINUTES = 60;
+export const DEFAULT_INBOX_QUICK_REPLY_MINUTES = 5;
+const InboxQuickReplyMinutes = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: MAX_INBOX_QUICK_REPLY_MINUTES }),
+);
 
 export const MAX_SNOOZE_PRESET_MINUTES = 30 * 24 * 60;
 export const MAX_SNOOZE_PRESETS = 8;
@@ -540,6 +545,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarWorkingShelfEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarInboxOldestFirst: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  sidebarInboxQuickReplyMinutes: InboxQuickReplyMinutes.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_INBOX_QUICK_REPLY_MINUTES)),
+  ),
   sidebarAdvanceAfterSend: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
@@ -2065,6 +2073,7 @@ export const ClientSettingsPatch = Schema.Struct({
   threadDetailsItems: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarInboxOldestFirst: Schema.optionalKey(Schema.Boolean),
+  sidebarInboxQuickReplyMinutes: Schema.optionalKey(InboxQuickReplyMinutes),
   sidebarAdvanceAfterSend: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(

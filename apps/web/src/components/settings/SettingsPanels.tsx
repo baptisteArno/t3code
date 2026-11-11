@@ -18,6 +18,7 @@ import {
 import {
   DEFAULT_UNIFIED_SETTINGS,
   type DiffLayout,
+  MAX_INBOX_QUICK_REPLY_MINUTES,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
@@ -493,6 +494,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarInboxOldestFirst !== DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst
       ? ["Oldest first"]
       : []),
+    ...(settings.sidebarInboxQuickReplyMinutes !==
+    DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes
+      ? ["Quick reply window"]
+      : []),
     ...(settings.sidebarAdvanceAfterSend !== DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend
       ? ["Next thread after sending"]
       : []),
@@ -678,6 +683,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarInboxOldestFirst: DEFAULT_UNIFIED_SETTINGS.sidebarInboxOldestFirst,
+      sidebarInboxQuickReplyMinutes: DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes,
       sidebarAdvanceAfterSend: DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
@@ -735,12 +741,18 @@ export function useSettingsRestore(onRestored?: () => void) {
 
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 7;
 
-function AutoSettleDaysInput({
+function IntegerSettingInput({
   value,
+  min,
+  max,
+  ariaLabel,
   onCommit,
 }: {
   value: number;
-  onCommit: (days: number) => void;
+  min: number;
+  max: number;
+  ariaLabel: string;
+  onCommit: (value: number) => void;
 }) {
   const [draft, setDraft] = useState(String(value));
   const [draftSource, setDraftSource] = useState(value);
@@ -753,23 +765,19 @@ function AutoSettleDaysInput({
     <Input
       size="sm"
       type="number"
-      min={MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
-      max={MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
+      min={min}
+      max={max}
       className="w-full sm:w-24"
       value={draft}
       onChange={(event) => {
         setDraft(event.target.value);
         const parsed = Number(event.target.value);
-        if (
-          Number.isInteger(parsed) &&
-          parsed >= MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS &&
-          parsed <= MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS
-        ) {
+        if (Number.isInteger(parsed) && parsed >= min && parsed <= max) {
           onCommit(parsed);
         }
       }}
       onBlur={() => setDraft(String(value))}
-      aria-label="Days of inactivity before auto-settle"
+      aria-label={ariaLabel}
     />
   );
 }
@@ -949,6 +957,37 @@ export function GeneralSettingsPanel() {
                   updateSettings({ sidebarInboxOldestFirst: Boolean(checked) })
                 }
                 aria-label="Oldest first"
+              />
+            }
+          />
+        ) : null}
+        {settings.sidebarWorkingShelfEnabled &&
+        !settings.boringSidebarEnabled &&
+        settings.sidebarInboxOldestFirst ? (
+          <SettingsRow
+            title={searchableSetting("inbox-quick-reply-minutes").title}
+            description="A thread that answers within this many minutes of your message goes to the top, while you still have its context. So does a thread waiting on your answer or approval. Set 0 to lift only those."
+            resetAction={
+              settings.sidebarInboxQuickReplyMinutes !==
+              DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes ? (
+                <SettingResetButton
+                  label="quick reply window"
+                  onClick={() =>
+                    updateSettings({
+                      sidebarInboxQuickReplyMinutes:
+                        DEFAULT_UNIFIED_SETTINGS.sidebarInboxQuickReplyMinutes,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <IntegerSettingInput
+                value={settings.sidebarInboxQuickReplyMinutes}
+                min={0}
+                max={MAX_INBOX_QUICK_REPLY_MINUTES}
+                ariaLabel="Quick reply window in minutes"
+                onCommit={(minutes) => updateSettings({ sidebarInboxQuickReplyMinutes: minutes })}
               />
             }
           />
@@ -2003,8 +2042,11 @@ export function ThreadsSettingsPanel() {
               title={searchableSetting("days-before-auto-settle").title}
               description="Any new activity un-settles a thread automatically."
               control={
-                <AutoSettleDaysInput
+                <IntegerSettingInput
                   value={settings.sidebarAutoSettleAfterDays}
+                  min={MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
+                  max={MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
+                  ariaLabel="Days of inactivity before auto-settle"
                   onCommit={(days) => updateSettings({ sidebarAutoSettleAfterDays: days })}
                 />
               }

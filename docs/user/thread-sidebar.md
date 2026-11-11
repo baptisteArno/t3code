@@ -151,6 +151,12 @@ To work through the active list as a queue, turn on **Settings → General → O
 thread that has waited longest stays at the top, and threads that come back later join at the
 bottom. Each device keeps its own choice.
 
+Two kinds of thread skip the queue and go to the top: one waiting on your answer, approval, or
+plan review, and one that answered within the **Quick reply window** of your message, 5 minutes
+by default. The second keeps a quick question on top while you still have its context. Both stay
+on top until you reply, settle, or snooze them. Set the window under **Oldest first**; 0 lifts only threads
+waiting on you.
+
 Turn on **Settings → General → Next thread after sending** to move through that queue as you
 reply. Each message you send opens the thread at the top of the active list, and when no other
 active thread is left, a new thread opens. Each device keeps its own choice. On web and desktop,
