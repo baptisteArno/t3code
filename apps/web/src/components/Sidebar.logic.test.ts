@@ -1072,6 +1072,10 @@ describe("Working shelf (beta)", () => {
       environmentId: localEnvironmentId,
       createdAt: input.createdAt,
       unsettledAt: input.unsettledAt ?? null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      interactionMode: "default" as const,
+      hasActionableProposedPlan: false,
       latestRun:
         input.completedAt === undefined
           ? null
