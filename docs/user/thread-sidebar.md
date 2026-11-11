@@ -37,6 +37,12 @@ While enabled, Active is sorted by most recent return (manual reordering is paus
 
 **Oldest first** (**Settings → General → Oldest first**, per device): work through Active as a queue. The thread that has waited longest stays at the top, and threads that come back later join at the bottom.
 
+Two kinds of thread skip the queue and go to the top: one waiting on your answer, approval, or
+plan review, and one that answered within the **Quick reply window** of your message, 5 minutes
+by default. The second keeps a quick question on top while you still have its context. Both stay
+on top until you reply, settle, or snooze them. Set the window under **Oldest first**; 0 lifts only threads
+waiting on you.
+
 Turn on **Settings → General → Next thread after sending** to move through that queue as you
 reply. Each message you send opens the first pinned thread that is not working, since pinned
 threads come first, then the thread at the top of the active list. Answering an approval, a
