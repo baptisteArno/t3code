@@ -6,7 +6,7 @@ import type {
   Project,
   ThreadId,
 } from "@t3tools/contracts";
-import { ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
+import { ProviderInstanceId, RunId, RuntimeRequestId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { projectThreadAwarenessV2 } from "./agentAwareness.ts";
@@ -25,6 +25,7 @@ describe("projectThreadAwarenessV2", () => {
         OrchestrationV2ThreadShell,
         | "activityRunStatus"
         | "latestRunBackgroundWake"
+        | "latestRunId"
         | "latestRunStopRequested"
         | "status"
         | "pendingBackgroundTasks"
@@ -45,6 +46,7 @@ describe("projectThreadAwarenessV2", () => {
     status: "running" as const,
     pendingRuntimeRequest: null,
     settledOverride: null,
+    latestRunId: null,
     updatedAt,
     ...overrides,
   });
@@ -62,6 +64,20 @@ describe("projectThreadAwarenessV2", () => {
         thread: { ...input.thread, latestRunStopRequested: true },
       }),
     ).toBeNull();
+  });
+
+  it("does not announce a run the agent asked to settle after", () => {
+    const runId = RunId.make("run-1");
+    const thread = v2Thread({ status: "completed", latestRunId: runId });
+    const awareness = (settleRequestedRunId: RunId | null) =>
+      projectThreadAwarenessV2({
+        environmentId: "env-1" as EnvironmentId,
+        project,
+        thread: { ...thread, settleRequestedRunId },
+      });
+    expect(awareness(runId)).toBeNull();
+    // A later run, like the user's next message, alerts again.
+    expect(awareness(RunId.make("run-0"))?.phase).toBe("completed");
   });
 
   it.each([
