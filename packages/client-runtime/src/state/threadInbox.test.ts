@@ -240,6 +240,46 @@ describe("createInboxReturnTracker", () => {
   });
 });
 
+describe("sortInboxThreadsByReturn", () => {
+  const answered = (id: string, sentAt: string, completedAt: string) => ({
+    ...thread(id, false),
+    latestUserAuthoredMessageAt: sentAt,
+    latestRun: {
+      runId: RunId.make(`run:${id}`),
+      status: "completed" as const,
+      requestedAt: sentAt,
+      startedAt: sentAt,
+      completedAt,
+      assistantMessageId: null,
+    },
+  });
+
+  it("puts threads that need the user now ahead of the oldest-first queue", () => {
+    const waitedLongest = answered("waited", "2026-06-01T09:00:00Z", "2026-06-01T09:30:00Z");
+    const slow = answered("slow", "2026-06-01T09:40:00Z", "2026-06-01T10:00:00Z");
+    const quick = answered("quick", "2026-06-01T10:58:00Z", "2026-06-01T11:00:00Z");
+    const asks = {
+      ...answered("asks", "2026-06-01T10:00:00Z", "2026-06-01T10:40:00Z"),
+      hasPendingUserInput: true,
+    };
+    const quickStop = answered("stopped", "2026-06-01T10:50:00Z", "2026-06-01T10:51:00Z");
+    const stopped = {
+      ...quickStop,
+      latestRun: { ...quickStop.latestRun, status: "interrupted" as const },
+    };
+    const threads = [quick, stopped, slow, asks, waitedLongest];
+    const order = (quickReplyMinutes: number) =>
+      sortInboxThreadsByReturn(threads, undefined, true, quickReplyMinutes).map(
+        (entry) => entry.id,
+      );
+    expect(order(5)).toEqual(["asks", "quick", "waited", "slow", "stopped"]);
+    expect(order(1)).toEqual(["asks", "waited", "slow", "stopped", "quick"]);
+    expect(sortInboxThreadsByReturn(threads, undefined, false, 5).map((entry) => entry.id)).toEqual(
+      ["quick", "stopped", "asks", "slow", "waited"],
+    );
+  });
+});
+
 describe("sortWorkingThreadsBySend", () => {
   it("orders by the last message the user sent, not by later runs", () => {
     const sentFirst = {
