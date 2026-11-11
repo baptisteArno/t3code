@@ -613,6 +613,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.guest-message.submit":
     case "thread.guest-message.dismiss":
     case "thread.settle":
+    case "thread.settle.request":
     case "thread.auto-settle":
     case "thread.unsettle":
     case "thread.snooze":
@@ -3855,6 +3856,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.archive"
           | "thread.unarchive"
           | "thread.settle"
+          | "thread.settle.request"
           | "thread.unsettle"
           | "thread.snooze"
           | "thread.unsnooze"
@@ -4022,6 +4024,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     if (
       (command.type === "thread.settle" ||
+        command.type === "thread.settle.request" ||
         command.type === "thread.unsettle" ||
         command.type === "thread.snooze" ||
         command.type === "thread.unsnooze" ||
@@ -4436,6 +4439,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: alreadyAwake ? thread.updatedAt : now,
           };
         }
+        case "thread.settle.request":
+          return { ...thread, settleRequestedRunId: command.runId };
         case "thread.auto-settle.set": {
           const unchanged = command.enabled === (thread.autoSettleDisabledAt == null);
           return {
@@ -4879,6 +4884,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.unsnoozed" as const;
         case "thread.auto-settle.set":
           return "thread.auto-settle-set" as const;
+        case "thread.settle.request":
+          return "thread.settle-requested" as const;
         case "thread.pin":
           return "thread.pinned" as const;
         case "thread.unpin":
@@ -14477,6 +14484,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.archive":
       case "thread.unarchive":
       case "thread.settle":
+      case "thread.settle.request":
       case "thread.unsettle":
       case "thread.snooze":
       case "thread.unsnooze":

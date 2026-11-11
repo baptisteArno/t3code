@@ -1164,6 +1164,12 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const shell = input.byOwnAgent ? yield* orchestrator.getThreadShell(input.threadId) : null;
     if (shell != null && shell.activeRunId !== null) {
+      yield* dispatch({
+        type: "thread.settle.request",
+        commandId: input.commandId,
+        threadId: shell.id,
+        runId: shell.activeRunId,
+      });
       yield* settleAfterRun({
         projectId: shell.projectId,
         threadId: shell.id,
