@@ -992,6 +992,7 @@ export function applyToProjection(
     case "thread.snoozed":
     case "thread.unsnoozed":
     case "thread.auto-settle-set":
+    case "thread.settle-requested":
     case "thread.pinned":
     case "thread.unpinned":
     case "thread.pin-reordered":
@@ -1934,6 +1935,7 @@ export function threadShellFromProjection(
     pinnedAt: projection.thread.pinnedAt ?? null,
 
     autoSettleDisabledAt: projection.thread.autoSettleDisabledAt ?? null,
+    settleRequestedRunId: projection.thread.settleRequestedRunId ?? null,
     pinOrderKey: projection.thread.pinOrderKey ?? null,
     ...(projection.thread.tags?.length ? { tags: projection.thread.tags } : {}),
     lastVisitedAt: projection.thread.lastVisitedAt,
@@ -2232,6 +2234,7 @@ function shellFromState(input: {
     pinnedAt: input.state.thread.pinnedAt ?? null,
 
     autoSettleDisabledAt: input.state.thread.autoSettleDisabledAt ?? null,
+    settleRequestedRunId: input.state.thread.settleRequestedRunId ?? null,
     pinOrderKey: input.state.thread.pinOrderKey ?? null,
     ...(input.state.thread.tags?.length ? { tags: input.state.thread.tags } : {}),
     lastVisitedAt: input.state.thread.lastVisitedAt,
@@ -2420,6 +2423,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.snoozed":
             case "thread.unsnoozed":
             case "thread.auto-settle-set":
+            case "thread.settle-requested":
             case "thread.pinned":
             case "thread.unpinned":
             case "thread.pin-reordered":
@@ -3261,6 +3265,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.snoozed" &&
             event.type !== "thread.unsnoozed" &&
             event.type !== "thread.auto-settle-set" &&
+            event.type !== "thread.settle-requested" &&
             event.type !== "thread.pinned" &&
             event.type !== "thread.unpinned" &&
             event.type !== "thread.pin-reordered" &&
@@ -9055,6 +9060,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               lineage: state.thread.lineage,
               modelSelection: state.thread.modelSelection,
               settledOverride: state.thread.settledOverride,
+              settleRequestedRunId: state.thread.settleRequestedRunId ?? null,
               updatedAt: state.updatedAt,
               status: state.latestRunStatus,
               activityRunStatus: state.activityRunStatus,
