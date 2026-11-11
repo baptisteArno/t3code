@@ -5678,6 +5678,8 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       });
       assert.deepEqual(result, { settlesWhenTurnEnds: true });
       assert.isNull((yield* orchestrator.getThreadProjection(threadId)).thread.settledOverride);
+      // Clients read this to keep the run's completion silent.
+      assert.equal((yield* orchestrator.getThreadShell(threadId))?.settleRequestedRunId, run.id);
       const now = yield* DateTime.now;
       yield* eventSink.write({
         commandId: CommandId.make("runtime-layer-settle-after-run-completed"),

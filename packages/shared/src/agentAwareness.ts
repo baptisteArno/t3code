@@ -68,6 +68,19 @@ function buildAgentAwarenessDeepLink(input: {
   return `/threads/${encodeURIComponent(input.environmentId)}/${encodeURIComponent(input.threadId)}`;
 }
 
+/** A run the user stopped, or one the thread's own agent asked to settle after, ends without an alert. */
+export function latestRunEndsQuietly(
+  thread: Pick<
+    OrchestrationV2ThreadShell,
+    "latestRunId" | "latestRunStopRequested" | "settleRequestedRunId"
+  >,
+): boolean {
+  return (
+    thread.latestRunStopRequested === true ||
+    (thread.latestRunId !== null && thread.settleRequestedRunId === thread.latestRunId)
+  );
+}
+
 export interface ProjectThreadAwarenessV2Input {
   readonly environmentId: EnvironmentId;
   readonly project: Pick<Project, "title">;
@@ -77,11 +90,13 @@ export interface ProjectThreadAwarenessV2Input {
     | "id"
     | "lineage"
     | "latestRunBackgroundWake"
+    | "latestRunId"
     | "latestRunStopRequested"
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
     | "settledOverride"
+    | "settleRequestedRunId"
     | "status"
     | "title"
     | "updatedAt"
@@ -100,7 +115,7 @@ export function projectThreadAwarenessV2(
   if (phase === null) {
     return null;
   }
-  if (phase === "completed" && thread.latestRunStopRequested === true) return null;
+  if (phase === "completed" && latestRunEndsQuietly(thread)) return null;
   // Resolve the phase first so live or waiting work stays visible after settlement.
   const runStatus = thread.activityRunStatus ?? thread.status;
   if (
