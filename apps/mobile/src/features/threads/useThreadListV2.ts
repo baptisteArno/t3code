@@ -62,6 +62,7 @@ export function useThreadListV2(input: {
   readonly shelfPreferencesLoaded: boolean;
   readonly workingShelfEnabled: boolean;
   readonly inboxOldestFirst: boolean;
+  readonly inboxQuickReplyMinutes: number;
   readonly workingShelfExpanded: boolean;
   readonly snoozedShelfExpanded: boolean;
   readonly settledShelfExpanded: boolean;
@@ -148,6 +149,7 @@ export function useThreadListV2(input: {
         now: layoutTime,
         workingShelfEnabled,
         inboxOldestFirst: input.inboxOldestFirst,
+        inboxQuickReplyMinutes: input.inboxQuickReplyMinutes,
         workingShelfExpanded: input.workingShelfExpanded,
         inboxReturnAt: inbox.returnedAt,
         isWorking: inbox.isWorking,
@@ -181,6 +183,7 @@ export function useThreadListV2(input: {
       layoutTime,
       workingShelfEnabled,
       input.inboxOldestFirst,
+      input.inboxQuickReplyMinutes,
       input.workingShelfExpanded,
       inbox.returnedAt,
       inbox.isWorking,
