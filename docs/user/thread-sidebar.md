@@ -159,7 +159,9 @@ waiting on you.
 
 Turn on **Settings → General → Next thread after sending** to move through that queue as you
 reply. Each message you send opens the thread at the top of the active list, and when no other
-active thread is left, a new thread opens. Each device keeps its own choice. On web and desktop,
+active thread is left, a new thread opens. On web and desktop, while that new thread is still
+empty, the first thread to come back to the active list opens in its place. Each device keeps its
+own choice. On web and desktop,
 a new thread you start from another thread is the exception: sending it takes you back to the
 thread you left. Sending in the background still keeps you where you are.
 

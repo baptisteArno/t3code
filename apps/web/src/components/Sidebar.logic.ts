@@ -46,6 +46,7 @@ import { deadlineAfter, deadlineStore, type ClockStore } from "@t3tools/client-r
 import { useDeadlinePassed } from "../hooks/useDeadline";
 import { legacyProjectCwdPreferenceKey } from "../uiStateStore";
 import { isElectron } from "../env";
+import type { InboxWait } from "../settleAndAdvance";
 import { shouldShowThreadJumpHintsForModifiers } from "../keybindings";
 import { isTerminalFocused, subscribeToTerminalFocusChanges } from "../lib/terminalFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -92,6 +93,41 @@ export function resolveNextThreadAfterSend(input: {
     }
   }
   return null;
+}
+
+/**
+ * While the user stays on the empty draft opened for an empty inbox, the first thread back in the
+ * inbox opens. The sent thread is skipped until it has shown as working, then its return counts.
+ */
+export function resolveInboxWait(input: {
+  readonly wait: InboxWait;
+  readonly routeThreadKey: string | null;
+  readonly draftSent: boolean;
+  readonly draftHasContent: boolean;
+  readonly activeThreads: readonly Pick<SidebarThreadSummary, "environmentId" | "id">[];
+  readonly workingThreads: readonly Pick<SidebarThreadSummary, "environmentId" | "id">[];
+  readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
+}): { readonly open: ScopedThreadRef | null; readonly wait: InboxWait | null } {
+  const { wait } = input;
+  if (input.draftSent || input.routeThreadKey !== scopedThreadKey(wait.draftRef)) {
+    return { open: null, wait: null };
+  }
+  const sentKey = wait.sentRef ? scopedThreadKey(wait.sentRef) : null;
+  const sentRef = input.workingThreads.some(
+    (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === sentKey,
+  )
+    ? null
+    : wait.sentRef;
+  const open = input.draftHasContent
+    ? null
+    : resolveNextThreadAfterSend({
+        activeThreads: input.activeThreads,
+        openedFrom: null,
+        sentRef: sentRef ?? wait.draftRef,
+        serverConfigs: input.serverConfigs,
+      });
+  if (open) return { open, wait: null };
+  return { open: null, wait: sentRef === wait.sentRef ? wait : { ...wait, sentRef } };
 }
 
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;

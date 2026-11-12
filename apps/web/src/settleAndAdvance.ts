@@ -39,6 +39,23 @@ export function nextThreadAfterSendEnabled(): boolean {
   return registeredNextThreadAfterSend !== null;
 }
 
+export interface InboxWait {
+  readonly draftRef: ScopedThreadRef;
+  /** Cleared once the sent thread leaves the inbox, so its return counts. */
+  readonly sentRef: ScopedThreadRef | null;
+}
+
+let inboxWait: InboxWait | null = null;
+
+/** The draft opened for an empty inbox gives way, while still empty, to a thread returning to it. */
+export function waitForInboxReturn(wait: InboxWait | null): void {
+  inboxWait = wait;
+}
+
+export function readInboxWait(): InboxWait | null {
+  return inboxWait;
+}
+
 const draftOrigins = new Map<string, ScopedThreadRef>();
 
 /** Sending a draft opened over a thread returns to that thread. */

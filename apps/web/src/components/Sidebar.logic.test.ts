@@ -29,6 +29,7 @@ import {
   sortSidebarV2ProjectGroups,
   shouldNavigateAfterThreadPark,
   resolveNextThreadAfterSend,
+  resolveInboxWait,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
@@ -975,6 +976,49 @@ describe("next thread after sending", () => {
         serverConfigs: new Map([[local, {}]]),
       })?.threadId ?? null,
     ).toBe(expected);
+  });
+
+  describe("on the empty draft opened for an empty inbox", () => {
+    const draft = thread(local, "draft");
+    const sent = thread(local, "sent");
+    const wait = {
+      draftRef: scopeThreadRef(local, draft.id),
+      sentRef: scopeThreadRef(local, sent.id),
+    };
+    const resolve = (overrides: Partial<Parameters<typeof resolveInboxWait>[0]> = {}) =>
+      resolveInboxWait({
+        wait,
+        routeThreadKey: scopedThreadKey(wait.draftRef),
+        draftSent: false,
+        draftHasContent: false,
+        activeThreads: [],
+        workingThreads: [],
+        serverConfigs: new Map([[local, {}]]),
+        ...overrides,
+      });
+    it.each([
+      ["opens a thread that returns", { activeThreads: [thread(local, "b")] }, "b", wait],
+      ["keeps waiting while the inbox is empty", {}, null, wait],
+      ["skips the sent thread before it works", { activeThreads: [sent] }, null, wait],
+      [
+        "keeps a typed draft",
+        { activeThreads: [thread(local, "b")], draftHasContent: true },
+        null,
+        wait,
+      ],
+      ["stops once the user leaves", { routeThreadKey: "elsewhere" }, null, null],
+      ["stops once the draft is sent", { draftSent: true }, null, null],
+    ] as const)("%s", (_, overrides, expectedOpen, expectedWait) => {
+      const result = resolve(overrides);
+      expect(result.open?.threadId ?? null).toBe(expectedOpen);
+      expect(result.wait).toEqual(expectedOpen ? null : expectedWait);
+    });
+
+    it("opens the sent thread once it worked and came back", () => {
+      const worked = resolve({ workingThreads: [sent] });
+      expect(worked).toEqual({ open: null, wait: { ...wait, sentRef: null } });
+      expect(resolve({ wait: worked.wait!, activeThreads: [sent] }).open?.threadId).toBe("sent");
+    });
   });
 });
 

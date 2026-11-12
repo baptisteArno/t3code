@@ -102,6 +102,7 @@ import {
   nextThreadAfterSend,
   nextThreadAfterSendEnabled,
   takeDraftOrigin,
+  waitForInboxReturn,
 } from "../../settleAndAdvance";
 import {
   approvalRedirectNotice,
@@ -1379,8 +1380,15 @@ export function useComposerSend(input: ComposerSendInput) {
           const opened = await handleNewThread(
             scopeProjectRef(activeProject.environmentId, activeProject.id),
           );
-          // This draft opened by itself, so sending it goes to the top of the inbox.
-          if (opened) takeDraftOrigin(scopeThreadRef(activeProject.environmentId, opened.threadId));
+          if (opened) {
+            const openedRef = scopeThreadRef(activeProject.environmentId, opened.threadId);
+            // This draft opened by itself, so sending it goes to the top of the inbox.
+            takeDraftOrigin(openedRef);
+            waitForInboxReturn({
+              draftRef: openedRef,
+              sentRef: scopeThreadRef(environmentId, threadIdForSend),
+            });
+          }
           advanced = opened !== null;
         } else if (nextAfterSend) {
           await navigate({
