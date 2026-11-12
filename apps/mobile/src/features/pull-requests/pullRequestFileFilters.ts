@@ -1,16 +1,24 @@
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import {
+  applyDiffFileOrder,
+  type DiffFileRules,
+  isHiddenDiffFile,
+} from "@t3tools/shared/diffFileRules";
 import type { ReviewParsedDiff } from "../review/reviewModel";
 
-export function filterPullRequestTestFiles(
+export function filterPullRequestFiles(
   parsed: ReviewParsedDiff,
-  hideTestFiles: boolean,
+  rules: DiffFileRules,
+  hideFiles: boolean,
   includePath?: string,
 ): ReviewParsedDiff {
-  if (!hideTestFiles || parsed.kind !== "files") return parsed;
-  const files = parsed.files.filter(
-    (file) => file.path === includePath || !isTestChangedFile(file.path),
-  );
-  if (files.length === parsed.files.length) return parsed;
+  if (parsed.kind !== "files") return parsed;
+  const ordered = applyDiffFileOrder(rules, parsed.files, (file) => file.path);
+  const shown = hideFiles
+    ? ordered.filter((file) => file.path === includePath || !isHiddenDiffFile(rules, file.path))
+    : ordered;
+  const files = shown.length === ordered.length ? ordered : shown;
+  if (files === parsed.files) return parsed;
+  if (files.length === parsed.files.length) return { ...parsed, files };
   return {
     ...parsed,
     files,
