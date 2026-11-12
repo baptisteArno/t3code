@@ -52,7 +52,10 @@ function useChangedFiles(params: PullRequestDiffParams) {
   ).changeRequest;
   const diff = usePullRequestDiff(params, terminology);
   const viewed = usePullRequestFilesViewed(params, pr);
-  const filter = usePullRequestFileFilter(diff.parsed);
+  const filter = usePullRequestFileFilter(diff.parsed, {
+    environmentId: params.environmentId,
+    workspaceRoot: detail.data?.workspaceRoot ?? null,
+  });
   const parsed = filter.parsed;
   return {
     diff,
@@ -97,11 +100,20 @@ function describeFiles(
         )
       : null,
     filter.hideTestFiles
-      ? resolve(
-          msg("{count, plural, one {{count} test file hidden} other {{count} test files hidden}}", {
-            count: filter.hiddenCount,
-          }),
-        )
+      ? filter.rules.hidden.length > 0
+        ? resolve(
+            msg("{count, plural, one {{count} file hidden} other {{count} files hidden}}", {
+              count: filter.hiddenCount,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {{count} test file hidden} other {{count} test files hidden}}",
+              {
+                count: filter.hiddenCount,
+              },
+            ),
+          )
       : resolve(msg("Test files included")),
   ]
     .filter(Boolean)
@@ -189,7 +201,10 @@ function FileFilterMenu({ filter }: { readonly filter: ChangedFiles["filter"] })
       actions={[
         {
           id: "hide-tests",
-          title: gt("Hide test files"),
+          title:
+            filter.rules.hidden.length > 0
+              ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+              : gt("Hide test files"),
           image: "line.3.horizontal.decrease",
           state: filter.hideTestFiles ? "on" : "off",
         },
@@ -213,9 +228,29 @@ function NoVisibleFiles({ files }: { readonly files: ChangedFiles }) {
   if (parsed.kind === "files") {
     return parsed.files.length === 0 && filter.hiddenCount > 0 ? (
       <EmptyState
-        title={diff.nextCursor ? gt("No non-test files loaded yet") : gt("Only test files changed")}
-        detail={gt("Test files are hidden from this review.")}
-        action={<Button label={gt("Show test files")} tone="contrast" onPress={filter.showAll} />}
+        title={
+          filter.rules.hidden.length > 0
+            ? diff.nextCursor
+              ? gt("No visible files loaded yet")
+              : gt("Only hidden files changed")
+            : diff.nextCursor
+              ? gt("No non-test files loaded yet")
+              : gt("Only test files changed")
+        }
+        detail={
+          filter.rules.hidden.length > 0
+            ? gt("Test files and {setting} are hidden from this review.", {
+                setting: "t3.json hiddenFiles",
+              })
+            : gt("Test files are hidden from this review.")
+        }
+        action={
+          <Button
+            label={filter.rules.hidden.length > 0 ? gt("Show hidden files") : gt("Show test files")}
+            tone="contrast"
+            onPress={filter.showAll}
+          />
+        }
         variant="plain"
       />
     ) : null;
@@ -430,7 +465,10 @@ export function PullRequestFilesSheet({ route }: StaticScreenProps<PullRequestDi
             items: [
               {
                 id: "hide-tests",
-                title: gt("Hide test files"),
+                title:
+                  filter.rules.hidden.length > 0
+                    ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+                    : gt("Hide test files"),
                 icon: "line.3.horizontal.decrease",
                 selected: filter.hideTestFiles,
                 onPress: filter.toggle,

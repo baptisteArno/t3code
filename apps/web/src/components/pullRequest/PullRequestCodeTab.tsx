@@ -82,6 +82,11 @@ import {
   canResolvePullRequestThread,
 } from "@t3tools/client-runtime/pull-request-editing";
 import { fileDiffRows } from "@t3tools/client-runtime/review-guide-tour";
+import {
+  applyDiffFileOrder,
+  type DiffFileRules,
+  isHiddenDiffFile,
+} from "@t3tools/shared/diffFileRules";
 import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
 import { orderDiffFilesForReview } from "@t3tools/client-runtime/diff-file-order";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/mediaPreview";
@@ -118,6 +123,7 @@ import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { DiffFileTree } from "../diffs/DiffFileTree";
 import { FileExplorerPane } from "../files/FileExplorerPane";
 import { useCodeViewFileReveal } from "../diffs/useCodeViewFileReveal";
+import { useDiffFileRules } from "../diffs/useDiffFileRules";
 import { useHideTestFiles } from "../diffs/useHideTestFiles";
 import { diffFileTreeEntries } from "../diffs/diffFileTree.logic";
 import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
@@ -250,10 +256,12 @@ function diffModel(
   slices: ReadonlyArray<DiffSlice>,
   keyPrefix: string,
   ignoreWhitespace: boolean,
+  fileRules: DiffFileRules,
 ): DiffModel {
   let models = diffModels.get(slices);
   if (models === undefined) diffModels.set(slices, (models = new Map()));
-  const cached = models.get(keyPrefix);
+  const modelKey = `${keyPrefix}:${fileRules.key}`;
+  const cached = models.get(modelKey);
   if (cached !== undefined) return cached;
   const parsedSlices = slices.map((slice) => {
     let hash = patchHashes.get(slice);
@@ -264,8 +272,12 @@ function diffModel(
   });
   const model: DiffModel = {
     parsedSlices,
-    loadedFiles: orderDiffFilesForReview(
-      parsedSlices.flatMap((parsed) => (parsed?.kind === "files" ? parsed.files : [])),
+    loadedFiles: applyDiffFileOrder(
+      fileRules,
+      orderDiffFilesForReview(
+        parsedSlices.flatMap((parsed) => (parsed?.kind === "files" ? parsed.files : [])),
+        resolveFileDiffPath,
+      ),
       resolveFileDiffPath,
     ),
     sourceFileStats: new Map(
@@ -282,7 +294,7 @@ function diffModel(
       ),
     ),
   };
-  models.set(keyPrefix, model);
+  models.set(modelKey, model);
   return model;
 }
 
@@ -712,11 +724,17 @@ function PullRequestCodeTab({
   // Agent context is local, so it does not require host comment permission.
   const canSelectLines =
     commit === null && (review.inlineComment || onAddToAgentSelection !== undefined);
+  const diffFileRules = useDiffFileRules(environmentId, detail.workspaceRoot);
   const {
     parsedSlices,
     loadedFiles: pagedFiles,
     sourceFileStats,
-  } = diffModel(loadedSlices, `pull-request:${scopeKey}:${ignoreWhitespace}`, ignoreWhitespace);
+  } = diffModel(
+    loadedSlices,
+    `pull-request:${scopeKey}:${ignoreWhitespace}`,
+    ignoreWhitespace,
+    diffFileRules,
+  );
   const withheldResults = useAtomValue(
     withheldFileDiffsAtom(
       JSON.stringify({ environmentId, input: withheldInput, paths: withheldPaths }),
@@ -804,17 +822,17 @@ function PullRequestCodeTab({
     readonly path: string;
   } | null>(null);
   const linkPath = pendingLinkPath ?? (revealedLink?.scope === scopeKey ? revealedLink.path : null);
-  const testFileCount = loadedFiles.filter((file) =>
-    isTestChangedFile(resolveFileDiffPath(file)),
-  ).length;
-  // A requested file stays visible so a jump to a hidden test still lands.
+  const hidablePaths = new Set(
+    loadedFiles.map(resolveFileDiffPath).filter((path) => isHiddenDiffFile(diffFileRules, path)),
+  );
+  // A requested file stays visible so a jump to a hidden file still lands.
   const files = hideTestFiles
     ? loadedFiles.filter((file) => {
         const path = resolveFileDiffPath(file);
-        return path === revealRequest?.path || path === linkPath || !isTestChangedFile(path);
+        return path === revealRequest?.path || path === linkPath || !hidablePaths.has(path);
       })
     : loadedFiles;
-  const hiddenTestFileCount = loadedFiles.length - files.length;
+  const hiddenFileCount = loadedFiles.length - files.length;
   const nextCursor = loadedSlices.at(-1)?.nextCursor ?? null;
   const draftFile =
     draft === null
@@ -1453,12 +1471,16 @@ function PullRequestCodeTab({
 
   const selectedCommit = orderedCommits.find((entry) => entry.oid === commit);
   const scopeLabel = selectedCommit ? selectedCommit.messageHeadline : gt("All commits");
-  const hiddenTestFilesLabel =
-    hiddenTestFileCount > 0
-      ? gt("{count, plural, one {{count} test file hidden} other {{count} test files hidden}}", {
-          count: hiddenTestFileCount,
-        })
-      : null;
+  const hiddenFilesLabel =
+    hiddenFileCount === 0
+      ? null
+      : diffFileRules.hidden.length > 0
+        ? gt("{count, plural, one {{count} file hidden} other {{count} files hidden}}", {
+            count: hiddenFileCount,
+          })
+        : gt("{count, plural, one {{count} test file hidden} other {{count} test files hidden}}", {
+            count: hiddenFileCount,
+          });
   const changeIgnoreWhitespace = (next: boolean) => {
     setIgnoreWhitespace(next);
     setDraft(null);
@@ -1532,7 +1554,7 @@ function PullRequestCodeTab({
               })}
               {nextCursor === null ? "" : "+"}
             </span>
-            {hiddenTestFilesLabel !== null && (files.length > 0 || nextCursor !== null) ? (
+            {hiddenFilesLabel !== null && (files.length > 0 || nextCursor !== null) ? (
               <span className="hidden items-center gap-1.5 @2xl:flex">
                 <span aria-hidden className="text-muted-foreground/50">
                   ·
@@ -1543,7 +1565,7 @@ function PullRequestCodeTab({
                   variant="link"
                   onClick={() => setHideTestFiles(false)}
                 >
-                  {hiddenTestFilesLabel}
+                  {hiddenFilesLabel}
                 </Button>
               </span>
             ) : null}
@@ -1782,18 +1804,30 @@ function PullRequestCodeTab({
             )}
           </SharedTooltipTrigger>
         ) : null}
-        {testFileCount > 0 ? (
+        {hidablePaths.size > 0 ? (
           <SharedTooltipTrigger
             render={
               <Toggle
-                aria-label={gt("Hide test files")}
+                aria-label={
+                  diffFileRules.hidden.length > 0
+                    ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+                    : gt("Hide test files")
+                }
                 variant="ghost"
                 size="sm"
                 pressed={hideTestFiles}
                 onPressedChange={(pressed) => setHideTestFiles(Boolean(pressed))}
               />
             }
-            label={hideTestFiles ? gt("Show test files") : gt("Hide test files")}
+            label={
+              hideTestFiles
+                ? diffFileRules.hidden.length > 0
+                  ? gt("Show hidden files")
+                  : gt("Show test files")
+                : diffFileRules.hidden.length > 0
+                  ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+                  : gt("Hide test files")
+            }
           >
             <FlaskConicalOffIcon className="size-3.5" />
           </SharedTooltipTrigger>
@@ -1932,12 +1966,12 @@ function PullRequestCodeTab({
   }
 
   if (items.length === 0 && nextCursor === null) {
-    if (hiddenTestFilesLabel !== null && files.length === 0) {
+    if (hiddenFilesLabel !== null && files.length === 0) {
       return withToolbar(
         <div className="flex flex-wrap items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
-          <p>{hiddenTestFilesLabel}</p>
+          <p>{hiddenFilesLabel}</p>
           <InlineButton onClick={() => setHideTestFiles(false)}>
-            {gt("Show test files")}
+            {diffFileRules.hidden.length > 0 ? gt("Show hidden files") : gt("Show test files")}
           </InlineButton>
         </div>,
       );
