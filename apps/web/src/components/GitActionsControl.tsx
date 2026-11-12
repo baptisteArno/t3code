@@ -66,6 +66,9 @@ import {
 } from "./GitActionsControl.logic";
 import { WizardPopup, WizardHeader, WizardSteps, WizardPanel, WizardFooter } from "./ui/wizard";
 import { StartTruncatedPath } from "./StartTruncatedPath";
+import { hiddenDiffFilesNoun, isHiddenDiffFile } from "@t3tools/shared/diffFileRules";
+import { useDiffFileRules } from "./diffs/useDiffFileRules";
+import { useHideTestFiles } from "./diffs/useHideTestFiles";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -1084,11 +1087,21 @@ export default function GitActionsControl({
         )
       : null,
   );
+  const [hideDiffFiles] = useHideTestFiles();
+  const diffFileRules = useDiffFileRules(
+    hideDiffFiles && showChanges ? activeEnvironmentId : null,
+    gitCwd,
+  );
   const resolvedChangesTotals = resolveChangesTotals(
     gitStatusForActions,
     changesPreview.data?.sources.find((source) => source.kind === "branch-range"),
+    hideDiffFiles ? (path) => isHiddenDiffFile(diffFileRules, path) : undefined,
   );
-  const changesTotals = resolvedChangesTotals ?? { insertions: 0, deletions: 0 };
+  const changesTotals = resolvedChangesTotals ?? {
+    insertions: 0,
+    deletions: 0,
+    hiddenFileCount: 0,
+  };
   const changesBreakdown = resolvedChangesTotals?.breakdown ?? null;
   const changesBaseLabel = resolvedChangesTotals
     ? resolvedChangesTotals.baseRef === null
@@ -1735,6 +1748,9 @@ export default function GitActionsControl({
                   </TooltipTrigger>
                   <TooltipPopup side="top" className="max-w-96 break-words">
                     {changesBaseLabel}
+                    {changesTotals.hiddenFileCount > 0
+                      ? `, without ${changesTotals.hiddenFileCount} hidden ${hiddenDiffFilesNoun(diffFileRules, changesTotals.hiddenFileCount)}`
+                      : null}
                   </TooltipPopup>
                 </Tooltip>
               ) : null}
