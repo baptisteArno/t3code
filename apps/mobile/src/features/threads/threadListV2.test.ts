@@ -269,7 +269,7 @@ describe("search lists ranked matches", () => {
     ]);
     expect([...layout.contentOnlyThreadKeys]).toEqual([matchKey("mentioned")]);
     // Next thread after sending reads the inbox the search hides.
-    expect(layout.inboxThreads.map((thread) => thread.id).toSorted()).toEqual([
+    expect(layout.nextThreadQueue.map((thread) => thread.id).toSorted()).toEqual([
       "lunch",
       "mentioned",
       "notes",
@@ -288,14 +288,32 @@ describe("resolveNextThreadAfterSend", () => {
     ["past the sent thread", [thread("a"), thread("b")], "a", "b"],
     ["past an environment without its config", [thread("a", remote), thread("b")], "c", "b"],
     ["nothing when only the sent thread is left", [thread("a")], "a", null],
-  ] as const)("picks %s", (_, inboxThreads, sentId, expected) => {
+  ] as const)("picks %s", (_, nextThreadQueue, sentId, expected) => {
     expect(
       resolveNextThreadAfterSend({
-        inboxThreads,
+        nextThreadQueue,
         sentThreadKey: `${environmentId}:${sentId}`,
         loadedEnvironmentIds: new Set([environmentId]),
       })?.id ?? null,
     ).toBe(expected);
+  });
+});
+
+describe("next thread queue", () => {
+  it("lists pinned threads not working before the active section", () => {
+    const layout = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: ThreadId.make("active"), title: "Active" }),
+        makeThread({ id: ThreadId.make("pinned-working"), title: "Busy", pinnedAt: NOW }),
+        makeThread({ id: ThreadId.make("pinned-idle"), title: "Idle", pinnedAt: NOW }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      workingShelfEnabled: true,
+      isWorking: (thread) => thread.id === "pinned-working",
+      now: NOW,
+    });
+    expect(layout.nextThreadQueue.map((thread) => thread.id)).toEqual(["pinned-idle", "active"]);
   });
 });
 

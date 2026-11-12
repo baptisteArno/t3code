@@ -7,34 +7,34 @@ import { uuidv4 } from "../../lib/uuid";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import { resolveNextThreadAfterSend } from "./threadListV2";
 
-type InboxThread = Pick<EnvironmentThreadShell, "environmentId" | "id">;
+type QueuedThread = Pick<EnvironmentThreadShell, "environmentId" | "id">;
 
-type InboxSource = (sentThreadKey: string) => InboxThread | null;
+type QueueSource = (sentThreadKey: string) => QueuedThread | null;
 
-const inboxSources = new Set<InboxSource>();
+const queueSources = new Set<QueueSource>();
 
-/** Offers a mounted thread list's inbox to the next send while the setting is on. */
+/** Offers a mounted thread list's queue to the next send while the setting is on. */
 export function useNextThreadAfterSendSource(input: {
   readonly enabled: boolean;
-  readonly inboxThreads: ReadonlyArray<InboxThread>;
+  readonly nextThreadQueue: ReadonlyArray<QueuedThread>;
   readonly loadedEnvironmentIds: ReadonlySet<EnvironmentId>;
 }) {
-  const { enabled, inboxThreads, loadedEnvironmentIds } = input;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this list's inbox in the module-level next-thread-after-send registry
+  const { enabled, nextThreadQueue, loadedEnvironmentIds } = input;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this list's queue in the module-level next-thread-after-send registry
   useEffect(() => {
     if (!enabled) return;
-    const source: InboxSource = (sentThreadKey) =>
-      resolveNextThreadAfterSend({ inboxThreads, sentThreadKey, loadedEnvironmentIds });
-    inboxSources.add(source);
+    const source: QueueSource = (sentThreadKey) =>
+      resolveNextThreadAfterSend({ nextThreadQueue, sentThreadKey, loadedEnvironmentIds });
+    queueSources.add(source);
     return () => {
-      inboxSources.delete(source);
+      queueSources.delete(source);
     };
-  }, [enabled, inboxThreads, loadedEnvironmentIds]);
+  }, [enabled, nextThreadQueue, loadedEnvironmentIds]);
 }
 
 /**
- * Opens the top inbox thread after a send, or a new thread in the sent thread's project when the
- * inbox is empty. Returns false, leaving the user where they are, when no list offers its inbox.
+ * Opens the first queued thread after a send, or a new thread in the sent thread's project when the
+ * queue is empty. Returns false, leaving the user where they are, when no list offers its queue.
  */
 export function useAdvanceAfterSend() {
   const selectDetail = useSelectWorkspaceDetail();
@@ -43,7 +43,7 @@ export function useAdvanceAfterSend() {
     readonly threadId: ThreadId;
     readonly projectId: ProjectId;
   }): boolean => {
-    const source = [...inboxSources].at(-1);
+    const source = [...queueSources].at(-1);
     if (source === undefined) return false;
     const next = source(scopedThreadKey(sent.environmentId, sent.threadId));
     selectDetail({

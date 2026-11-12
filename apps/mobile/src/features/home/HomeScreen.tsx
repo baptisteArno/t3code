@@ -443,7 +443,7 @@ export function HomeScreen(props: HomeScreenProps) {
   useThreadJumpShortcuts(threadListV2Items, selectThread);
   useNextThreadAfterSendSource({
     enabled: advanceAfterSend,
-    inboxThreads: threadListV2Layout.inboxThreads,
+    nextThreadQueue: threadListV2Layout.nextThreadQueue,
     loadedEnvironmentIds: settlementEnvironmentIds,
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the list's visible range after commit to enable swipe gestures on those rows

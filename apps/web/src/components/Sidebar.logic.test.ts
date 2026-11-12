@@ -954,22 +954,61 @@ describe("next thread after sending", () => {
     environmentId,
     id: ThreadId.make(id),
   });
+  const pinned = (id: string, working = false) => ({
+    ...thread(local, id),
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    pendingSubagentRequest: null,
+    interactionMode: "default" as const,
+    latestRun: null,
+    runtime: working
+      ? {
+          status: "running" as const,
+          activeRunId: null,
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          providerName: "Codex",
+          lastError: null,
+          updatedAt: "2026-11-12T00:00:00.000Z",
+        }
+      : null,
+  });
   it.each([
-    ["the top thread", [thread(local, "a"), thread(local, "b")], null, "c", "a"],
-    ["past the sent thread", [thread(local, "a"), thread(local, "b")], null, "a", "b"],
-    ["past an unconfigured environment", [thread(remote, "a"), thread(local, "b")], null, "c", "b"],
-    ["nothing when only the sent thread is left", [thread(local, "a")], null, "a", null],
-    ["the thread the draft was opened from", [thread(local, "a")], thread(local, "w"), "c", "w"],
+    ["the top thread", [], [thread(local, "a"), thread(local, "b")], null, "c", "a"],
+    ["past the sent thread", [], [thread(local, "a"), thread(local, "b")], null, "a", "b"],
+    [
+      "past an unconfigured environment",
+      [],
+      [thread(remote, "a"), thread(local, "b")],
+      null,
+      "c",
+      "b",
+    ],
+    ["nothing when only the sent thread is left", [], [thread(local, "a")], null, "a", null],
+    ["a pinned thread not working first", [pinned("p")], [thread(local, "a")], null, "c", "p"],
+    ["past a working pinned thread", [pinned("p", true)], [thread(local, "a")], null, "c", "a"],
+    ["past the sent pinned thread", [pinned("p")], [thread(local, "a")], null, "p", "a"],
+    ["a pinned thread when none is active", [pinned("p")], [], null, "c", "p"],
+    [
+      "the thread the draft was opened from",
+      [pinned("p")],
+      [thread(local, "a")],
+      thread(local, "w"),
+      "c",
+      "w",
+    ],
     [
       "the top thread when the draft's origin was archived",
+      [],
       [thread(local, "a")],
       thread(local, "w", "2026-11-09T00:00:00.000Z"),
       "c",
       "a",
     ],
-  ] as const)("picks %s", (_, activeThreads, openedFrom, sentId, expected) => {
+  ] as const)("picks %s", (_, pinnedThreads, activeThreads, openedFrom, sentId, expected) => {
     expect(
       resolveNextThreadAfterSend({
+        pinnedThreads,
         activeThreads,
         openedFrom,
         sentRef: scopeThreadRef(local, ThreadId.make(sentId)),
@@ -991,6 +1030,7 @@ describe("next thread after sending", () => {
         routeThreadKey: scopedThreadKey(wait.draftRef),
         draftSent: false,
         draftHasContent: false,
+        pinnedThreads: [],
         activeThreads: [],
         workingThreads: [],
         serverConfigs: new Map([[local, {}]]),
@@ -998,6 +1038,13 @@ describe("next thread after sending", () => {
       });
     it.each([
       ["opens a thread that returns", { activeThreads: [thread(local, "b")] }, "b", wait],
+      ["opens a pinned thread that stops working", { pinnedThreads: [pinned("p")] }, "p", wait],
+      [
+        "keeps waiting while pinned threads work",
+        { pinnedThreads: [pinned("p", true)] },
+        null,
+        wait,
+      ],
       ["keeps waiting while the inbox is empty", {}, null, wait],
       ["skips the sent thread before it works", { activeThreads: [sent] }, null, wait],
       [
@@ -1018,6 +1065,15 @@ describe("next thread after sending", () => {
       const worked = resolve({ workingThreads: [sent] });
       expect(worked).toEqual({ open: null, wait: { ...wait, sentRef: null } });
       expect(resolve({ wait: worked.wait!, activeThreads: [sent] }).open?.threadId).toBe("sent");
+    });
+
+    it("opens the sent pinned thread once it worked and stopped", () => {
+      const worked = resolve({ pinnedThreads: [pinned("sent", true)] });
+      expect(worked).toEqual({ open: null, wait: { ...wait, sentRef: null } });
+      expect(resolve({ pinnedThreads: [pinned("sent")] }).open).toBeNull();
+      expect(resolve({ wait: worked.wait!, pinnedThreads: [pinned("sent")] }).open?.threadId).toBe(
+        "sent",
+      );
     });
   });
 });

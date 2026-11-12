@@ -1699,9 +1699,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (readRouteThreadKey(router) !== scopedThreadKey(sentRef)) return undefined;
     const originRef = takeDraftOrigin(sentRef);
     const openedFrom = originRef ? readThreadShell(originRef) : null;
-    return resolveNextThreadAfterSend({ activeThreads, openedFrom, sentRef, serverConfigs });
+    return resolveNextThreadAfterSend({
+      pinnedThreads,
+      activeThreads,
+      openedFrom,
+      sentRef,
+      serverConfigs,
+    });
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's active list in the module-level next-thread-after-send registry
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's pinned and active lists in the module-level next-thread-after-send registry
   useEffect(
     () => (advanceAfterSend ? registerNextThreadAfterSend(nextThreadAfterSend) : undefined),
     [advanceAfterSend, nextThreadAfterSend],
@@ -1718,6 +1724,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           draftHasContent: composerDraftHasUserContent(
             useComposerDraftStore.getState().getComposerDraft(wait.draftRef),
           ),
+          pinnedThreads,
           activeThreads,
           workingThreads,
           serverConfigs,
@@ -1730,7 +1737,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         params: buildThreadRouteParams(open),
       });
     }
-  }, [advanceAfterSend, routeThreadKey, activeThreads, workingThreads, serverConfigs, router]);
+  }, [
+    advanceAfterSend,
+    routeThreadKey,
+    pinnedThreads,
+    activeThreads,
+    workingThreads,
+    serverConfigs,
+    router,
+  ]);
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
