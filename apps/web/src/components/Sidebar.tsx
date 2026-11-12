@@ -135,9 +135,11 @@ import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import {
+  readInboxWait,
   registerNextThreadAfterSend,
   registerSettleAndAdvance,
   takeDraftOrigin,
+  waitForInboxReturn,
 } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
@@ -220,6 +222,7 @@ import {
   type SidebarListItem,
   type SidebarSection,
   resolveNextThreadAfterSend,
+  resolveInboxWait,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -1697,6 +1700,31 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     () => (advanceAfterSend ? registerNextThreadAfterSend(nextThreadAfterSend) : undefined),
     [advanceAfterSend, nextThreadAfterSend],
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- watches the inbox for the module-level wait an empty-inbox send leaves, and navigates when a thread returns
+  useEffect(() => {
+    const wait = readInboxWait();
+    if (!wait) return;
+    const { open, wait: nextWait } = advanceAfterSend
+      ? resolveInboxWait({
+          wait,
+          routeThreadKey,
+          draftSent: readThreadShell(wait.draftRef) !== null,
+          draftHasContent: composerDraftHasUserContent(
+            useComposerDraftStore.getState().getComposerDraft(wait.draftRef),
+          ),
+          activeThreads,
+          workingThreads,
+          serverConfigs,
+        })
+      : { open: null, wait: null };
+    if (nextWait !== wait) waitForInboxReturn(nextWait);
+    if (open) {
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(open),
+      });
+    }
+  }, [advanceAfterSend, routeThreadKey, activeThreads, workingThreads, serverConfigs, router]);
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
