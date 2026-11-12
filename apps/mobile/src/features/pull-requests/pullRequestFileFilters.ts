@@ -1,16 +1,35 @@
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import {
+  applyDiffFileOrder,
+  type DiffFileRules,
+  isHiddenDiffFile,
+} from "@t3tools/shared/diffFileRules";
 import type { ReviewParsedDiff } from "../review/reviewModel";
 
-export function filterPullRequestTestFiles(
+/** Orders by t3.json and, while hiding, drops what it and the test detection hide. */
+export function visibleDiffFiles<T extends { readonly path: string }>(
+  items: ReadonlyArray<T>,
+  rules: DiffFileRules,
+  hideFiles: boolean,
+  includePath?: string,
+): ReadonlyArray<T> {
+  const ordered = applyDiffFileOrder(rules, items, (item) => item.path);
+  if (!hideFiles) return ordered;
+  const shown = ordered.filter(
+    (item) => item.path === includePath || !isHiddenDiffFile(rules, item.path),
+  );
+  return shown.length === ordered.length ? ordered : shown;
+}
+
+export function filterPullRequestFiles(
   parsed: ReviewParsedDiff,
-  hideTestFiles: boolean,
+  rules: DiffFileRules,
+  hideFiles: boolean,
   includePath?: string,
 ): ReviewParsedDiff {
-  if (!hideTestFiles || parsed.kind !== "files") return parsed;
-  const files = parsed.files.filter(
-    (file) => file.path === includePath || !isTestChangedFile(file.path),
-  );
-  if (files.length === parsed.files.length) return parsed;
+  if (parsed.kind !== "files") return parsed;
+  const files = visibleDiffFiles(parsed.files, rules, hideFiles, includePath);
+  if (files === parsed.files) return parsed;
+  if (files.length === parsed.files.length) return { ...parsed, files };
   return {
     ...parsed,
     files,
@@ -23,12 +42,17 @@ export function filterPullRequestTestFiles(
 /** Patches to load around `index` (or from the top): the next three files the review will show. */
 export function shownPatchIndices(
   files: ReadonlyArray<{ readonly path: string }>,
-  hideTestFiles: boolean,
+  rules: DiffFileRules,
+  hideFiles: boolean,
   index: number | null,
+  includePath?: string,
 ): ReadonlyArray<number> {
-  const shown = files.flatMap((file, position) =>
-    hideTestFiles && isTestChangedFile(file.path) ? [] : [position],
-  );
+  const shown = visibleDiffFiles(
+    files.map((file, position) => ({ path: file.path, position })),
+    rules,
+    hideFiles,
+    includePath,
+  ).map((file) => file.position);
   if (index === null) return shown.slice(0, 3);
   const position = shown.indexOf(index);
   return position < 0 ? [index] : shown.slice(position, position + 3);
