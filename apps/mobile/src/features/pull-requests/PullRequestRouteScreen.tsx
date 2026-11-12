@@ -50,7 +50,7 @@ import {
   pullRequestDiffInitialPosition,
 } from "./pullRequestDiffDebug";
 import { usePullRequestDiffHighlightFiles } from "./usePullRequestDiffHighlightFiles";
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import { isHiddenDiffFile } from "@t3tools/shared/diffFileRules";
 import {
   useFocusEffect,
   useNavigation,
@@ -1030,6 +1030,10 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
       : undefined;
   const filter = usePullRequestFileFilter(
     result.parsed,
+    {
+      environmentId: route.params.environmentId,
+      workspaceRoot: detail.data?.workspaceRoot ?? null,
+    },
     linkPath ?? (route.params.focus ? route.params.path : undefined),
   );
   const { refresh: refreshDetail } = detail;
@@ -1169,7 +1173,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
   const jumpedUnder = useRef<boolean | null>(targetFile ? filter.hideTestFiles : null);
   const hasTestFiles =
     result.parsed.kind === "files" &&
-    result.parsed.files.some((file) => isTestChangedFile(file.path));
+    result.parsed.files.some((file) => isHiddenDiffFile(filter.rules, file.path));
   const jumpStarted = () =>
     jumpedUnder.current !== null && (!hasTestFiles || jumpedUnder.current === filter.hideTestFiles);
   const scrollToFile = (fileId: string) => {
@@ -1287,7 +1291,10 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
       },
       {
         id: "hide-tests",
-        title: gt("Hide test files"),
+        title:
+          filter.rules.hidden.length > 0
+            ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+            : gt("Hide test files"),
         icon: "line.3.horizontal.decrease",
         selected: filter.hideTestFiles,
         onPress: toggleTestFiles,
@@ -1325,9 +1332,13 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
           { count: data.files.length },
         )}${
           filter.hideTestFiles && filter.hiddenCount
-            ? ` · ${gt("{count, plural, one {{count} test hidden} other {{count} tests hidden}}", {
-                count: filter.hiddenCount,
-              })}`
+            ? ` · ${
+                filter.rules.hidden.length > 0
+                  ? `${filter.hiddenCount} hidden`
+                  : gt("{count, plural, one {{count} test hidden} other {{count} tests hidden}}", {
+                      count: filter.hiddenCount,
+                    })
+              }`
             : ""
         }`}
         onBack={() => navigation.goBack()}
@@ -1447,10 +1458,28 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
             !seekingFile ? (
             <View style={{ paddingTop: contentTopInset }}>
               <EmptyState
-                title={gt("Only test files changed")}
-                detail={gt("Test files are hidden from this review.")}
+                title={
+                  filter.rules.hidden.length > 0
+                    ? gt("Only hidden files changed")
+                    : gt("Only test files changed")
+                }
+                detail={
+                  filter.rules.hidden.length > 0
+                    ? gt("Test files and {setting} are hidden from this review.", {
+                        setting: "t3.json hiddenFiles",
+                      })
+                    : gt("Test files are hidden from this review.")
+                }
                 action={
-                  <Button label={gt("Show test files")} tone="contrast" onPress={filter.showAll} />
+                  <Button
+                    label={
+                      filter.rules.hidden.length > 0
+                        ? gt("Show hidden files")
+                        : gt("Show test files")
+                    }
+                    tone="contrast"
+                    onPress={filter.showAll}
+                  />
                 }
                 variant="plain"
               />
