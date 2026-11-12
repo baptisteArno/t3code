@@ -25,10 +25,9 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import { reviewEnvironment } from "../../state/review";
 import type { MessageResolver } from "../../i18n/messages";
-import {
-  filterPullRequestTestFiles,
-  shownPatchIndices,
-} from "../pull-requests/pullRequestFileFilters";
+import { diffFileRulesFromT3ProjectFile } from "@t3tools/shared/diffFileRules";
+import { useT3ProjectFileContents } from "../../state/t3-project-file";
+import { filterPullRequestFiles, shownPatchIndices } from "../pull-requests/pullRequestFileFilters";
 import { useHideTestFilesPreference } from "../pull-requests/usePullRequestFileFilter";
 
 const EMPTY_INLINE_REVIEW_COMMENTS = Object.freeze([]);
@@ -153,6 +152,8 @@ export function useReviewDiffData(input: {
   readonly draftContext: OrchestrationMessageContext | undefined;
   /** Shows one folder of a turn's patch; `folders` lists every folder, NUL-separated. */
   readonly repositoryFilter: { readonly folder: string; readonly folders: string } | null;
+  /** Stays shown while files are hidden, such as a file opened from chat. */
+  readonly includePath: string | undefined;
 }) {
   const { draftMessage, draftContext, selectedSection, threadKey } = input;
   const messages = useMessages();
@@ -187,10 +188,14 @@ export function useReviewDiffData(input: {
   const scope = JSON.stringify([environmentId, cwd, lazySource?.kind, source?.baseRef]);
   const hideTestFilesPreference = useHideTestFilesPreference();
   const { hideTestFiles } = hideTestFilesPreference;
+  const { includePath } = input;
+  const rules = diffFileRulesFromT3ProjectFile(
+    useT3ProjectFileContents(environmentId ?? null, cwd).contents,
+  );
   const lazyFiles = lazySource?.files;
   const seedIndices = useMemo(
-    () => shownPatchIndices(lazyFiles ?? [], hideTestFiles, null),
-    [lazyFiles, hideTestFiles],
+    () => shownPatchIndices(lazyFiles ?? [], rules, hideTestFiles, null, includePath),
+    [lazyFiles, rules, hideTestFiles, includePath],
   );
   const [requested, setRequested] = useState<{ scope: string; indices: number[] }>({
     scope,
@@ -256,14 +261,25 @@ export function useReviewDiffData(input: {
       if (index < 0) return;
       setRequested((current) => {
         const previous = current.scope === scope ? current.indices : [];
-        const nearby = shownPatchIndices(lazyFiles ?? [], hideTestFiles, index);
+        const nearby = shownPatchIndices(lazyFiles ?? [], rules, hideTestFiles, index, includePath);
         const added = nearby.filter((next) => !previous.includes(next));
         return added.length === 0 ? current : { scope, indices: [...previous, ...added] };
       });
       if (retry && patches[index]?._tag === "Failure" && queries[index])
         registry.refresh(queries[index]);
     },
-    [lazySource, lazyFiles, scope, patches, queries, registry, seedIndices, hideTestFiles],
+    [
+      lazySource,
+      lazyFiles,
+      scope,
+      patches,
+      queries,
+      registry,
+      seedIndices,
+      rules,
+      hideTestFiles,
+      includePath,
+    ],
   );
   const parsedDiff = useMemo<ReviewParsedDiff>(() => {
     if (!lazySource?.files) return applyReviewDiffMetadata(previewDiff, selectedSection, messages);
@@ -279,10 +295,6 @@ export function useReviewDiffData(input: {
       notice: null,
     };
   }, [lazySource, previewDiff, selectedSection, patches, messages, locale]);
-  const headerDiffSummary = useMemo(
-    () => formatHeaderDiffSummary(parsedDiff, selectedSection?.files),
-    [parsedDiff, selectedSection?.files],
-  );
   const inlineReviewComments = parseReviewInlineComments(draftMessage, draftContext, messages);
   const selectedSectionInlineComments = useMemo(() => {
     if (!selectedSectionId || inlineReviewComments.length === 0) {
@@ -291,17 +303,22 @@ export function useReviewDiffData(input: {
     return inlineReviewComments.filter((comment) => comment.sectionId === selectedSectionId);
   }, [inlineReviewComments, selectedSectionId]);
   const shownDiff = useMemo(
-    () => filterPullRequestTestFiles(parsedDiff, hideTestFiles),
-    [parsedDiff, hideTestFiles],
+    () => filterPullRequestFiles(parsedDiff, rules, hideTestFiles, includePath),
+    [parsedDiff, rules, hideTestFiles, includePath],
   );
-  const fileFilter = {
-    ...hideTestFilesPreference,
-    parsed: shownDiff,
-    hiddenCount:
-      parsedDiff.kind === "files" && shownDiff.kind === "files"
-        ? parsedDiff.fileCount - shownDiff.fileCount
-        : 0,
-  };
+  const hiddenCount =
+    parsedDiff.kind === "files" && shownDiff.kind === "files"
+      ? parsedDiff.fileCount - shownDiff.fileCount
+      : 0;
+  const fileFilter = { ...hideTestFilesPreference, rules, parsed: shownDiff, hiddenCount };
+  // Like the web Diff panel, the totals leave out the files the toggle hides.
+  const headerDiffSummary = useMemo(
+    () =>
+      hiddenCount > 0
+        ? formatHeaderDiffSummary(shownDiff)
+        : formatHeaderDiffSummary(parsedDiff, selectedSection?.files),
+    [hiddenCount, shownDiff, parsedDiff, selectedSection?.files],
+  );
   const nativeReviewDiffData = getCachedNativeReviewDiffData({
     parsedDiff: fileFilter.parsed,
     comments: selectedSectionInlineComments,

@@ -143,7 +143,12 @@ function ReviewHeader(
                     items: [
                       {
                         id: "hide-tests",
-                        title: gt("Hide test files"),
+                        title:
+                          props.fileFilter.rules.hidden.length > 0
+                            ? gt("Hide test files and {setting}", {
+                                setting: "t3.json hiddenFiles",
+                              })
+                            : gt("Hide test files"),
                         icon: "line.3.horizontal.decrease",
                         selected: props.fileFilter.hideTestFiles,
                         onPress: props.fileFilter.toggle,
@@ -448,6 +453,10 @@ export function ReviewSheet(props: ReviewSheetProps) {
     repositorySelection !== null && repositorySelection.sectionId === selectedSection?.id
       ? (repositoryGroups?.find((group) => group.key === repositorySelection.key) ?? null)
       : null;
+  const fileReveal = useReviewFileReveal(reviewCache.threadKey);
+  // The reveal clears once the file is in view; it stays shown for the rest of the visit.
+  const [shownReveal, setShownReveal] = useState(fileReveal);
+  if (fileReveal !== null && fileReveal !== shownReveal) setShownReveal(fileReveal);
   const {
     headerDiffSummary,
     nativeReviewDiffData,
@@ -472,6 +481,10 @@ export function ReviewSheet(props: ReviewSheetProps) {
             folder: selectedRepository.relativePath,
             folders: repositoryGroups.map((group) => group.relativePath).join("\0"),
           },
+    includePath:
+      shownReveal !== null && shownReveal.sectionId === selectedSection?.id
+        ? shownReveal.path
+        : undefined,
   });
   // Expo may return null before registration or in older binaries; use the fallback.
   const NativeReviewDiffView = resolveNativeReviewDiffView();
@@ -509,7 +522,6 @@ export function ReviewSheet(props: ReviewSheetProps) {
       : undefined,
   });
   const { collapsedFileIds, toggleExpandedFile, toggleViewedFile, viewedFileIds } = fileVisibility;
-  const fileReveal = useReviewFileReveal(reviewCache.threadKey);
   const revealedFileId =
     fileReveal !== null && fileReveal.sectionId === selectedSection?.id
       ? reviewFiles.find((file) => file.path === fileReveal.path)?.id
@@ -665,6 +677,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const showChangedFilesToggle = panes.supportsAuxiliaryPane && showChangedFilesPane;
 
   const allFilesHidden = reviewFiles.length === 0 && fileFilter.hiddenCount > 0;
+  const hidesConfiguredFiles = fileFilter.rules.hidden.length > 0;
   const listHeader = (() => {
     const children: ReactElement[] = [];
 
@@ -700,10 +713,22 @@ export function ReviewSheet(props: ReviewSheetProps) {
       children.push(
         <EmptyState
           key="review-tests-hidden"
-          title={gt("Only test files changed")}
-          detail={gt("Test files are hidden from this review.")}
+          title={
+            hidesConfiguredFiles ? gt("Only hidden files changed") : gt("Only test files changed")
+          }
+          detail={
+            hidesConfiguredFiles
+              ? gt("Test files and {setting} are hidden from this review.", {
+                  setting: "t3.json hiddenFiles",
+                })
+              : gt("Test files are hidden from this review.")
+          }
           action={
-            <Button label={gt("Show test files")} tone="contrast" onPress={fileFilter.showAll} />
+            <Button
+              label={hidesConfiguredFiles ? gt("Show hidden files") : gt("Show test files")}
+              tone="contrast"
+              onPress={fileFilter.showAll}
+            />
           }
           variant="plain"
         />,
