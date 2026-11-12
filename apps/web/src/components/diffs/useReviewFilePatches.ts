@@ -8,6 +8,7 @@ import type {
 import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
+import { type DiffFileRules, applyDiffFileOrder } from "@t3tools/shared/diffFileRules";
 import { useContext, useState } from "react";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { getRenderablePatch, resolveFileDiffPath, type RenderablePatch } from "~/lib/diffRendering";
@@ -28,6 +29,7 @@ export function useReviewFilePatches({
   theme,
   previewInput,
   preview,
+  fileRules,
 }: {
   environmentId: EnvironmentId | undefined;
   cwd: string | undefined;
@@ -38,6 +40,7 @@ export function useReviewFilePatches({
   /** The preview the file list came from; a newer revision of it refreshes loaded patches. */
   previewInput: ReviewDiffPreviewInput | undefined;
   preview: RenderablePatch | null;
+  fileRules: DiffFileRules;
 }) {
   const registry = useContext(RegistryContext);
   const scope = JSON.stringify([
@@ -49,7 +52,7 @@ export function useReviewFilePatches({
     baseRef,
     ignoreWhitespace,
   ]);
-  const files = sortedReviewFiles(source);
+  const files = sortedReviewFiles(source, fileRules);
   const automaticPaths = files.slice(0, INITIAL_FILE_COUNT).map((file) => file.path);
   const [requested, setRequested] = useState(() => ({ scope, paths: automaticPaths }));
   const previousPaths = requested.scope === scope ? requested.paths : [];
@@ -66,13 +69,14 @@ export function useReviewFilePatches({
     previewInput,
     scope,
     requested,
+    fileRules,
   });
   const queriedPatchesAtom = reviewPatchesAtom(
     JSON.stringify([theme, queries.map(({ index, target }) => [index, target])]),
   );
   const patches = useAtomValue(queriedPatchesAtom);
   const retry = useStableCallback((path: string) => {
-    const files = sortedReviewFiles(source);
+    const files = sortedReviewFiles(source, fileRules);
     const query = queries.find(({ index }) => files[index]?.path === path)?.query;
     if (query) registry.refresh(query);
   });
@@ -130,8 +134,12 @@ export function useReviewFilePatches({
           },
         ];
       })
-    : (preview?.kind === "files" ? preview.files : []).toSorted((a, b) =>
-        filePathCollator.compare(resolveFileDiffPath(a), resolveFileDiffPath(b)),
+    : applyDiffFileOrder(
+        fileRules,
+        (preview?.kind === "files" ? preview.files : []).toSorted((a, b) =>
+          filePathCollator.compare(resolveFileDiffPath(a), resolveFileDiffPath(b)),
+        ),
+        resolveFileDiffPath,
       );
   const fileStates = new Map(
     files.map((file, index) => {
@@ -171,6 +179,7 @@ function reviewFileQueries({
   previewInput,
   scope,
   requested,
+  fileRules,
 }: {
   environmentId: EnvironmentId | undefined;
   cwd: string | undefined;
@@ -180,8 +189,9 @@ function reviewFileQueries({
   previewInput: ReviewDiffPreviewInput | undefined;
   scope: string;
   requested: { scope: string; paths: string[] };
+  fileRules: DiffFileRules;
 }) {
-  const files = sortedReviewFiles(source);
+  const files = sortedReviewFiles(source, fileRules);
   const paths = new Set([
     ...files.slice(0, INITIAL_FILE_COUNT).map((file) => file.path),
     ...(requested.scope === scope ? requested.paths : []),
@@ -215,8 +225,10 @@ function reviewFileQueries({
   return queries;
 }
 
-function sortedReviewFiles(source: ReviewDiffPreviewSource | null) {
-  return source?.files?.toSorted((a, b) => filePathCollator.compare(a.path, b.path)) ?? [];
+// Lazy loading requests files by their index here, so the configured order applies before it.
+function sortedReviewFiles(source: ReviewDiffPreviewSource | null, fileRules: DiffFileRules) {
+  const files = source?.files?.toSorted((a, b) => filePathCollator.compare(a.path, b.path)) ?? [];
+  return applyDiffFileOrder(fileRules, files, (file) => file.path);
 }
 
 type ReviewPatchTarget = Parameters<typeof reviewEnvironment.diffFilePatch>[0];

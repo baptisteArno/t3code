@@ -78,7 +78,11 @@ import {
   canResolvePullRequestThread,
 } from "@t3tools/client-runtime/pull-request-editing";
 import { fileDiffRows } from "@t3tools/client-runtime/review-guide-tour";
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import {
+  applyDiffFileOrder,
+  type DiffFileRules,
+  isHiddenDiffFile,
+} from "@t3tools/shared/diffFileRules";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/mediaPreview";
 import { orderDiffFiles } from "./pullRequestFileOrder.logic";
 import {
@@ -112,6 +116,7 @@ import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { DiffFileTree } from "../diffs/DiffFileTree";
 import { FileExplorerPane } from "../files/FileExplorerPane";
 import { useCodeViewFileReveal } from "../diffs/useCodeViewFileReveal";
+import { useDiffFileRules } from "../diffs/useDiffFileRules";
 import { useHideTestFiles } from "../diffs/useHideTestFiles";
 import { diffFileTreeEntries, orderDiffFilesLikeTree } from "../diffs/diffFileTree.logic";
 import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
@@ -244,10 +249,12 @@ function diffModel(
   slices: ReadonlyArray<DiffSlice>,
   keyPrefix: string,
   ignoreWhitespace: boolean,
+  fileRules: DiffFileRules,
 ): DiffModel {
   let models = diffModels.get(slices);
   if (models === undefined) diffModels.set(slices, (models = new Map()));
-  const cached = models.get(keyPrefix);
+  const modelKey = `${keyPrefix}:${fileRules.key}`;
+  const cached = models.get(modelKey);
   if (cached !== undefined) return cached;
   const parsedSlices = slices.map((slice) => {
     let hash = patchHashes.get(slice);
@@ -258,10 +265,14 @@ function diffModel(
   });
   const model: DiffModel = {
     parsedSlices,
-    loadedFiles: orderDiffFilesLikeTree(
-      parsedSlices.flatMap((parsed) =>
-        parsed?.kind === "files" ? orderDiffFiles(parsed.files) : [],
+    loadedFiles: applyDiffFileOrder(
+      fileRules,
+      orderDiffFilesLikeTree(
+        parsedSlices.flatMap((parsed) =>
+          parsed?.kind === "files" ? orderDiffFiles(parsed.files) : [],
+        ),
       ),
+      resolveFileDiffPath,
     ),
     sourceFileStats: new Map(
       parsedSlices.flatMap((parsed) =>
@@ -277,7 +288,7 @@ function diffModel(
       ),
     ),
   };
-  models.set(keyPrefix, model);
+  models.set(modelKey, model);
   return model;
 }
 
@@ -664,11 +675,17 @@ function PullRequestCodeTab({
   // Agent context is local, so it does not require host comment permission.
   const canSelectLines =
     commit === null && (review.inlineComment || onAddToAgentSelection !== undefined);
+  const diffFileRules = useDiffFileRules(environmentId, detail.workspaceRoot);
   const {
     parsedSlices,
     loadedFiles: pagedFiles,
     sourceFileStats,
-  } = diffModel(loadedSlices, `pull-request:${scopeKey}:${ignoreWhitespace}`, ignoreWhitespace);
+  } = diffModel(
+    loadedSlices,
+    `pull-request:${scopeKey}:${ignoreWhitespace}`,
+    ignoreWhitespace,
+    diffFileRules,
+  );
   const withheldResults = useAtomValue(
     withheldFileDiffsAtom(
       JSON.stringify({ environmentId, input: withheldInput, paths: withheldPaths }),
@@ -757,17 +774,17 @@ function PullRequestCodeTab({
     readonly path: string;
   } | null>(null);
   const linkPath = pendingLinkPath ?? (revealedLink?.scope === scopeKey ? revealedLink.path : null);
-  const testFileCount = loadedFiles.filter((file) =>
-    isTestChangedFile(resolveFileDiffPath(file)),
-  ).length;
-  // A requested file stays visible so a jump to a hidden test still lands.
+  const hidablePaths = new Set(
+    loadedFiles.map(resolveFileDiffPath).filter((path) => isHiddenDiffFile(diffFileRules, path)),
+  );
+  // A requested file stays visible so a jump to a hidden file still lands.
   const files = hideTestFiles
     ? loadedFiles.filter((file) => {
         const path = resolveFileDiffPath(file);
-        return path === revealRequest?.path || path === linkPath || !isTestChangedFile(path);
+        return path === revealRequest?.path || path === linkPath || !hidablePaths.has(path);
       })
     : loadedFiles;
-  const hiddenTestFileCount = loadedFiles.length - files.length;
+  const hiddenFileCount = loadedFiles.length - files.length;
   const filePaths = files.map((file) => resolveFileDiffPath(file));
   const omittedFileStats = new Map(
     loadedSlices.flatMap((slice) =>
@@ -1444,12 +1461,16 @@ function PullRequestCodeTab({
             })}
             {nextCursor === null ? "" : "+"}
           </span>
-          {hiddenTestFileCount > 0 ? (
+          {hiddenFileCount > 0 ? (
             <Button type="button" size="xs" variant="link" onClick={() => setHideTestFiles(false)}>
-              {gt(
-                "{count, plural, one {{count} test file hidden} other {{count} test files hidden}}",
-                { count: hiddenTestFileCount },
-              )}
+              {diffFileRules.hidden.length > 0
+                ? gt("{count, plural, one {{count} file hidden} other {{count} files hidden}}", {
+                    count: hiddenFileCount,
+                  })
+                : gt(
+                    "{count, plural, one {{count} test file hidden} other {{count} test files hidden}}",
+                    { count: hiddenFileCount },
+                  )}
             </Button>
           ) : null}
           {filesViewed.enabled && files.length > 0 ? (
@@ -1682,12 +1703,16 @@ function PullRequestCodeTab({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {testFileCount > 0 ? (
+        {hidablePaths.size > 0 ? (
           <Tooltip>
             <TooltipTrigger
               render={
                 <Toggle
-                  aria-label={gt("Hide test files")}
+                  aria-label={
+                    diffFileRules.hidden.length > 0
+                      ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+                      : gt("Hide test files")
+                  }
                   variant="ghost"
                   size="sm"
                   pressed={hideTestFiles}
@@ -1698,7 +1723,13 @@ function PullRequestCodeTab({
               <FlaskConicalOffIcon className="size-3.5" />
             </TooltipTrigger>
             <TooltipPopup side="top">
-              {hideTestFiles ? gt("Show test files") : gt("Hide test files")}
+              {hideTestFiles
+                ? diffFileRules.hidden.length > 0
+                  ? gt("Show hidden files")
+                  : gt("Show test files")
+                : diffFileRules.hidden.length > 0
+                  ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+                  : gt("Hide test files")}
             </TooltipPopup>
           </Tooltip>
         ) : null}
