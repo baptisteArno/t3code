@@ -72,6 +72,9 @@ import {
 } from "./GitActionsControl.logic";
 import { WizardPopup, WizardHeader, WizardSteps, WizardPanel, WizardFooter } from "./ui/wizard";
 import { StartTruncatedPath } from "./StartTruncatedPath";
+import { isHiddenDiffFile } from "@t3tools/shared/diffFileRules";
+import { useDiffFileRules } from "./diffs/useDiffFileRules";
+import { useHideTestFiles } from "./diffs/useHideTestFiles";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -1099,11 +1102,21 @@ function CheckoutGitActionsControl({
         )
       : null,
   );
+  const [hideDiffFiles] = useHideTestFiles();
+  const diffFileRules = useDiffFileRules(
+    hideDiffFiles && showChanges ? activeEnvironmentId : null,
+    gitCwd,
+  );
   const resolvedChangesTotals = resolveChangesTotals(
     gitStatusForActions,
     changesPreview.data?.sources.find((source) => source.kind === "branch-range"),
+    hideDiffFiles ? (path) => isHiddenDiffFile(diffFileRules, path) : undefined,
   );
-  const changesTotals = resolvedChangesTotals ?? { insertions: 0, deletions: 0 };
+  const changesTotals = resolvedChangesTotals ?? {
+    insertions: 0,
+    deletions: 0,
+    hiddenFileCount: 0,
+  };
   const changesBreakdown = resolvedChangesTotals?.breakdown ?? null;
   const changesBaseLabel = resolvedChangesTotals
     ? resolvedChangesTotals.baseRef === null
@@ -1748,7 +1761,19 @@ function CheckoutGitActionsControl({
                   render={
                     <span className="pointer-events-auto min-w-0 truncate font-normal text-muted-foreground" />
                   }
-                  label={changesBaseLabel}
+                  label={`${changesBaseLabel}${
+                    changesTotals.hiddenFileCount > 0
+                      ? diffFileRules.hidden.length > 0
+                        ? gt(
+                            "{count, plural, one {, without {count} hidden file} other {, without {count} hidden files}}",
+                            { count: changesTotals.hiddenFileCount },
+                          )
+                        : gt(
+                            "{count, plural, one {, without {count} hidden test file} other {, without {count} hidden test files}}",
+                            { count: changesTotals.hiddenFileCount },
+                          )
+                      : ""
+                  }`}
                   className="max-w-96 break-words"
                 >
                   {changesBaseLabel}
