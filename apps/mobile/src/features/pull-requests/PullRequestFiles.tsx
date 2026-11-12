@@ -4,6 +4,7 @@ import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { PullRequestChangeBreakdown } from "@t3tools/contracts";
 import { msg, T, useGT, useMessages, Var } from "gt-react-native";
+import { type DiffFileRules } from "@t3tools/shared/diffFileRules";
 import { useState } from "react";
 import { View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -56,7 +57,10 @@ function useChangedFiles(params: PullRequestDiffParams) {
   ).changeRequest;
   const diff = usePullRequestDiff(params, terminology);
   const viewed = usePullRequestFilesViewed(params, pr);
-  const filter = usePullRequestFileFilter(diff.parsed);
+  const filter = usePullRequestFileFilter(diff.parsed, {
+    environmentId: params.environmentId,
+    workspaceRoot: detail.data?.workspaceRoot ?? null,
+  });
   const parsed = filter.parsed;
   return {
     diff,
@@ -101,11 +105,20 @@ function describeFiles(
         )
       : null,
     filter.hideTestFiles
-      ? resolve(
-          msg("{count, plural, one {{count} test file hidden} other {{count} test files hidden}}", {
-            count: filter.hiddenCount,
-          }),
-        )
+      ? filter.rules.hidden.length > 0
+        ? resolve(
+            msg("{count, plural, one {{count} file hidden} other {{count} files hidden}}", {
+              count: filter.hiddenCount,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {{count} test file hidden} other {{count} test files hidden}}",
+              {
+                count: filter.hiddenCount,
+              },
+            ),
+          )
       : resolve(msg("Test files included")),
   ]
     .filter(Boolean)
@@ -192,7 +205,10 @@ function FileFilterMenu({ filter }: { readonly filter: ChangedFiles["filter"] })
       actions={[
         {
           id: "hide-tests",
-          title: gt("Hide test files"),
+          title:
+            filter.rules.hidden.length > 0
+              ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+              : gt("Hide test files"),
           image: "line.3.horizontal.decrease",
           state: filter.hideTestFiles ? "on" : "off",
         },
@@ -216,9 +232,29 @@ function NoVisibleFiles({ files }: { readonly files: ChangedFiles }) {
   if (parsed.kind === "files") {
     return parsed.files.length === 0 && filter.hiddenCount > 0 ? (
       <EmptyState
-        title={diff.nextCursor ? gt("No non-test files loaded yet") : gt("Only test files changed")}
-        detail={gt("Test files are hidden from this review.")}
-        action={<Button label={gt("Show test files")} tone="contrast" onPress={filter.showAll} />}
+        title={
+          filter.rules.hidden.length > 0
+            ? diff.nextCursor
+              ? gt("No visible files loaded yet")
+              : gt("Only hidden files changed")
+            : diff.nextCursor
+              ? gt("No non-test files loaded yet")
+              : gt("Only test files changed")
+        }
+        detail={
+          filter.rules.hidden.length > 0
+            ? gt("Test files and {setting} are hidden from this review.", {
+                setting: "t3.json hiddenFiles",
+              })
+            : gt("Test files are hidden from this review.")
+        }
+        action={
+          <Button
+            label={filter.rules.hidden.length > 0 ? gt("Show hidden files") : gt("Show test files")}
+            tone="contrast"
+            onPress={filter.showAll}
+          />
+        }
         variant="plain"
       />
     ) : null;
@@ -387,12 +423,19 @@ type SheetItem =
 function groupByDirectory(
   files: ReadonlyArray<ReviewRenderableFile>,
   collapsed: ReadonlySet<string>,
+  rules: DiffFileRules,
 ) {
-  const sorted = files
-    .map((file) => ({ file, directory: fileDirectory(file.path) }))
-    .sort(
-      (a, b) => a.directory.localeCompare(b.directory) || a.file.path.localeCompare(b.file.path),
-    );
+  const entries = files.map((file) => ({ file, directory: fileDirectory(file.path) }));
+  // A t3.json order is already applied to files; directories then follow their first file.
+  const firstIndex = new Map<string, number>();
+  entries.forEach(({ directory }, index) => {
+    if (!firstIndex.has(directory)) firstIndex.set(directory, index);
+  });
+  const sorted = entries.sort((a, b) =>
+    rules.order.length > 0
+      ? firstIndex.get(a.directory)! - firstIndex.get(b.directory)!
+      : a.directory.localeCompare(b.directory) || a.file.path.localeCompare(b.file.path),
+  );
   const items: SheetItem[] = [];
   sorted.forEach(({ file, directory }, index) => {
     if (directory !== sorted[index - 1]?.directory) {
@@ -466,7 +509,10 @@ export function PullRequestFilesSheet({ route }: StaticScreenProps<PullRequestDi
             items: [
               {
                 id: "hide-tests",
-                title: gt("Hide test files"),
+                title:
+                  filter.rules.hidden.length > 0
+                    ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+                    : gt("Hide test files"),
                 icon: "line.3.horizontal.decrease",
                 selected: filter.hideTestFiles,
                 onPress: filter.toggle,
@@ -479,7 +525,9 @@ export function PullRequestFilesSheet({ route }: StaticScreenProps<PullRequestDi
         <AnimatedLegendList
           renderScrollComponent={NativeScrollView}
           className="flex-1"
-          data={parsed.kind === "files" ? groupByDirectory(parsed.files, collapsed) : []}
+          data={
+            parsed.kind === "files" ? groupByDirectory(parsed.files, collapsed, filter.rules) : []
+          }
           keyExtractor={(item) => item.key}
           getItemType={(item) => item.kind}
           itemLayoutAnimation={PR_ROW_LAYOUT}
