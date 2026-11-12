@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
@@ -108,6 +109,29 @@ export const T3ProjectFile = Schema.Struct({
         description: "Project scripts shared with everyone who opens this repository in T3 Code.",
       })
       .check(Schema.isMaxLength(T3_PROJECT_FILE_MAX_SCRIPTS)),
+  ),
+  // A malformed diff section decodes as empty so it never invalidates the file and its scripts.
+  diff: Schema.optionalKey(
+    Schema.Struct({
+      hiddenFiles: Schema.optionalKey(
+        Schema.Array(Schema.String)
+          .annotate({
+            description:
+              'Files the "Hide test files" toggle also hides in diffs, in .gitignore syntax relative to the repository root (e.g. "bun.lock", "**/*.snap", "generated/", "!generated/keep.ts"). A later pattern overrides an earlier one, and "!" can show a file the built-in test detection hides.',
+          })
+          .pipe(Schema.catchDecoding(() => Effect.succeedSome([]))),
+      ),
+      sort: Schema.optionalKey(
+        Schema.Record(Schema.String, Schema.Array(Schema.String))
+          .annotate({
+            description:
+              'Order of files in diffs, per folder. Each key matches a parent folder ("." is the root, "*" matches one path segment, "**" any number); its value lists the child names to show first, in order, where "*" matches any characters within a name. The first matching key wins; unlisted children keep their default order.',
+          })
+          .pipe(Schema.catchDecoding(() => Effect.succeedSome({}))),
+      ),
+    })
+      .annotate({ description: "How diffs and pull request files list this repository's files." })
+      .pipe(Schema.catchDecoding(() => Effect.succeedSome({}))),
   ),
 }).annotate({
   title: "T3 project file",
