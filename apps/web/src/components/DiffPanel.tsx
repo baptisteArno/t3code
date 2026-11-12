@@ -42,7 +42,12 @@ import {
   useDiffPanelStore,
 } from "../diffPanelStore";
 import { useLocalStorage } from "../hooks/useLocalStorage";
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import {
+  hiddenDiffFilesNoun,
+  hideDiffFilesLabel,
+  isHiddenDiffFile,
+} from "@t3tools/shared/diffFileRules";
+import { useDiffFileRules } from "./diffs/useDiffFileRules";
 import { useHideTestFiles } from "./diffs/useHideTestFiles";
 import { useRenderedAppearance } from "../hooks/useTheme";
 import { useStableCallback } from "../hooks/useStableCallback";
@@ -261,6 +266,7 @@ export default function DiffPanel({
       : null,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const diffFileRules = useDiffFileRules(activeThread?.environmentId ?? null, activeCwd ?? null);
   const activeRepositoryRoot = activeThread?.worktreePath
     ? undefined
     : activeProject?.repositoryIdentity?.rootPath;
@@ -615,6 +621,7 @@ export default function DiffPanel({
     theme: resolvedTheme,
     previewInput: branchDiffPreviewInput,
     preview: renderablePatch,
+    fileRules: diffFileRules,
   });
   const refreshBranchDiffPreview = refreshPreviewQuery;
   const diffRefreshKey = `diff:${activeThreadRefreshKey ?? ""}`;
@@ -650,13 +657,19 @@ export default function DiffPanel({
     return { ...entry, fileKey: `${pathKey}:${occurrence}` };
   });
   const diffFileKeys = renderableFileEntries.map((file) => file.fileKey);
-  const testFileCount = renderableFiles.filter((file) =>
-    isTestChangedFile(resolveFileDiffPath(file)),
+  const hidablePaths = new Set(
+    renderableFiles
+      .map(resolveFileDiffPath)
+      .filter((path) => isHiddenDiffFile(diffFileRules, path)),
+  );
+  const hidableFileCount = renderableFiles.filter((file) =>
+    hidablePaths.has(resolveFileDiffPath(file)),
   ).length;
+  const hideFilesLabel = hideDiffFilesLabel(diffFileRules);
   // Hiding is display-only: lazy loading indexes into the full list. A requested file stays visible.
   const isFileShown = (file: FileDiffMetadata) => {
     const path = resolveFileDiffPath(file);
-    return !hideTestFiles || path === selectedFilePath || !isTestChangedFile(path);
+    return !hideTestFiles || path === selectedFilePath || !hidablePaths.has(path);
   };
   const shownFileEntries = renderableFileEntries.filter(({ fileDiff }) => isFileShown(fileDiff));
   const shownFileKeys = shownFileEntries.map((file) => file.fileKey);
@@ -1273,12 +1286,12 @@ export default function DiffPanel({
             {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
           </TooltipPopup>
         </Tooltip>
-        {testFileCount > 0 && (
+        {hidableFileCount > 0 && (
           <Tooltip>
             <TooltipTrigger
               render={
                 <Toggle
-                  aria-label="Hide test files"
+                  aria-label={hideFilesLabel}
                   variant="ghost"
                   size="sm"
                   pressed={hideTestFiles}
@@ -1290,8 +1303,8 @@ export default function DiffPanel({
             </TooltipTrigger>
             <TooltipPopup side="top">
               {hideTestFiles
-                ? `Show ${testFileCount} hidden test ${testFileCount === 1 ? "file" : "files"}`
-                : "Hide test files"}
+                ? `Show ${hidableFileCount} hidden ${hiddenDiffFilesNoun(diffFileRules, hidableFileCount)}`
+                : hideFilesLabel}
             </TooltipPopup>
           </Tooltip>
         )}

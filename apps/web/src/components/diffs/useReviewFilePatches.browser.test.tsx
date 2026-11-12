@@ -1,6 +1,7 @@
 import { RegistryContext } from "@effect/atom-react";
 import type { ReviewDiffPreviewSource } from "@t3tools/contracts";
 import { EnvironmentId } from "@t3tools/contracts";
+import { BUILT_IN_DIFF_FILE_RULES } from "@t3tools/shared/diffFileRules";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import * as Option from "effect/Option";
 import { expect, it, vi } from "vite-plus/test";
@@ -54,6 +55,7 @@ function Probe({ source }: { source: ReviewDiffPreviewSource }) {
     theme: "dark",
     previewInput: { cwd: "/project", metadataOnly: true },
     preview: null,
+    fileRules: BUILT_IN_DIFF_FILE_RULES,
   });
   return (
     <>

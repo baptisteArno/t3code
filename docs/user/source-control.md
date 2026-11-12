@@ -26,6 +26,31 @@ commit links follow your **Open links in** setting; on web, when that opens a ne
 shows an **Open link** button. Command/Ctrl+Click always opens the link in your browser. Commit links follow the **Open pull requests in T3 Code**
 setting in **Settings → Diffs**.
 
+### Hide and order files
+
+The **Hide test files** toggle in the Diff pane and a pull request's files also hides the files your
+repository lists in `t3.json`, and `t3.json` can choose the order files appear in, per folder:
+
+```json
+{
+  "diff": {
+    "hiddenFiles": ["bun.lock", "**/*.snap", "generated/", "!generated/keep.ts"],
+    "sort": {
+      ".": ["packages", "apps"],
+      "packages/*": ["domain", "server"],
+      "packages/*/src": ["*.model.ts", "*.errors.ts"]
+    }
+  }
+}
+```
+
+`hiddenFiles` uses `.gitignore` syntax relative to the repository root; a later pattern overrides
+an earlier one, and `!` can show a file the built-in test detection hides. In `sort`, each key
+matches a parent folder (`.` is the root, `*` one folder, `**` any number) and lists the children to
+show first; `*` in a child matches any characters in its name. The first matching key wins, and
+other children keep their usual order. The Diff pane reads the thread checkout's `t3.json`; a pull
+request reads the project's local checkout, so a pull request cannot change its own review.
+
 ## Connect an account
 
 Install Git and configure authentication on the machine running your T3 Code server. For a remote

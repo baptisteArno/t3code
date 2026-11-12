@@ -11,6 +11,10 @@
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"
     },
+    "./diffFileRules": {
+      "types": "./src/diffFileRules.ts",
+      "import": "./src/diffFileRules.ts"
+    },
     "./authScopeOptions": {
       "types": "./src/authScopeOptions.ts",
       "import": "./src/authScopeOptions.ts"

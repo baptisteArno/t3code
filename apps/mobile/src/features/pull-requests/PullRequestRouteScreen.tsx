@@ -46,7 +46,11 @@ import {
   pullRequestDiffInitialPosition,
 } from "./pullRequestDiffDebug";
 import { usePullRequestDiffHighlightFiles } from "./usePullRequestDiffHighlightFiles";
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import {
+  hiddenDiffFilesNoun,
+  hideDiffFilesLabel,
+  isHiddenDiffFile,
+} from "@t3tools/shared/diffFileRules";
 import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RegistryContext, useAtomRefresh, useAtomValue } from "@effect/atom-react";
@@ -988,6 +992,10 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
       : undefined;
   const filter = usePullRequestFileFilter(
     result.parsed,
+    {
+      environmentId: route.params.environmentId,
+      workspaceRoot: detail.data?.workspaceRoot ?? null,
+    },
     linkPath ?? (route.params.focus ? route.params.path : undefined),
   );
   const { refresh: refreshDetail } = detail;
@@ -1097,7 +1105,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
   const jumpedUnder = useRef<boolean | null>(targetFile ? filter.hideTestFiles : null);
   const hasTestFiles =
     result.parsed.kind === "files" &&
-    result.parsed.files.some((file) => isTestChangedFile(file.path));
+    result.parsed.files.some((file) => isHiddenDiffFile(filter.rules, file.path));
   const jumpStarted = () =>
     jumpedUnder.current !== null && (!hasTestFiles || jumpedUnder.current === filter.hideTestFiles);
   const scrollToFile = (fileId: string) => {
@@ -1172,7 +1180,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
     <View className="flex-1 android:bg-header ios:bg-screen">
       <AppBar
         title={title}
-        subtitle={`${commit ? commit.slice(0, 7) : `#${route.params.number}`} · ${data.files.length} ${data.files.length === 1 ? "file" : "files"}${filter.hideTestFiles && filter.hiddenCount ? ` · ${filter.hiddenCount} ${filter.hiddenCount === 1 ? "test" : "tests"} hidden` : ""}`}
+        subtitle={`${commit ? commit.slice(0, 7) : `#${route.params.number}`} · ${data.files.length} ${data.files.length === 1 ? "file" : "files"}${filter.hideTestFiles && filter.hiddenCount ? ` · ${filter.hiddenCount} ${filter.rules.hidden.length > 0 ? "" : filter.hiddenCount === 1 ? "test " : "tests "}hidden` : ""}`}
         onBack={() => navigation.goBack()}
         menus={[
           {
@@ -1216,7 +1224,7 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
               },
               {
                 id: "hide-tests",
-                title: "Hide test files",
+                title: hideDiffFilesLabel(filter.rules),
                 icon: "line.3.horizontal.decrease",
                 selected: filter.hideTestFiles,
                 onPress: toggleTestFiles,
@@ -1366,9 +1374,23 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
             !seekingFile ? (
             <View style={{ paddingTop: contentTopInset }}>
               <EmptyState
-                title="Only test files changed"
-                detail="Test files are hidden from this review."
-                action={<Button label="Show test files" tone="contrast" onPress={filter.showAll} />}
+                title={
+                  filter.rules.hidden.length > 0
+                    ? "Only hidden files changed"
+                    : "Only test files changed"
+                }
+                detail={
+                  filter.rules.hidden.length > 0
+                    ? "Test files and t3.json hiddenFiles are hidden from this review."
+                    : "Test files are hidden from this review."
+                }
+                action={
+                  <Button
+                    label={`Show ${hiddenDiffFilesNoun(filter.rules, 2)}`}
+                    tone="contrast"
+                    onPress={filter.showAll}
+                  />
+                }
                 variant="plain"
               />
             </View>

@@ -29,4 +29,15 @@ describe("parseT3ProjectFile", () => {
       }`),
     ).toEqual({ defaultThreadEnvMode: "worktree" });
   });
+
+  it("keeps the rest of the file when its diff section is malformed", () => {
+    const scripts = [{ name: "Dev", command: "vp run dev" }];
+    expect(
+      parseT3ProjectFile(JSON.stringify({ scripts, diff: { hiddenFiles: [42], sort: "x" } })),
+    ).toEqual({ scripts, diff: { hiddenFiles: [], sort: {} } });
+    expect(parseT3ProjectFile(JSON.stringify({ scripts, diff: "x" }))).toEqual({
+      scripts,
+      diff: {},
+    });
+  });
 });
