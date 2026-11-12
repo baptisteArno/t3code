@@ -648,20 +648,26 @@ export type ChangesLineTotals = {
   readonly baseRef: string | null;
   /** `null` when the selected totals carry no per-file stats. */
   readonly breakdown: PullRequestChangeBreakdown;
+  /** Files the Diff panel hides, left out of the counts. */
+  readonly hiddenFileCount: number;
 };
 
 // `branchChanges ?? workingTree` treats `{0,0}` as present, so a zero branch total hid a dirty
 // working tree and the Changes row read +0 while Diff still showed the work.
 // The Diff panel's branch comparison wins when it has file stats, so a remembered base or
-// hidden whitespace reads the same in the row as in the panel.
+// hidden whitespace and hidden files read the same in the row as in the panel.
 export function resolveChangesTotals(
   status: VcsStatusResult | null | undefined,
   branchPreview?: ReviewDiffPreviewSource | null,
+  isHiddenFile?: (path: string) => boolean,
 ): ChangesLineTotals | null {
   if (branchPreview?.files) {
+    const visibleFiles = isHiddenFile
+      ? branchPreview.files.filter((file) => !isHiddenFile(file.path))
+      : branchPreview.files;
     let insertions = 0;
     let deletions = 0;
-    for (const file of branchPreview.files) {
+    for (const file of visibleFiles) {
       insertions += file.additions;
       deletions += file.deletions;
     }
@@ -669,7 +675,8 @@ export function resolveChangesTotals(
       insertions,
       deletions,
       baseRef: branchPreview.baseRef,
-      breakdown: summarizeChangedFiles(branchPreview.files),
+      breakdown: summarizeChangedFiles(visibleFiles),
+      hiddenFileCount: branchPreview.files.length - visibleFiles.length,
     };
   }
   if (!status) return null;
@@ -695,5 +702,6 @@ export function resolveChangesTotals(
             })),
           )
         : null,
+    hiddenFileCount: 0,
   };
 }

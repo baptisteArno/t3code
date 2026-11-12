@@ -49,7 +49,8 @@ import {
   useDiffPanelStore,
 } from "../diffPanelStore";
 import { useLocalStorage } from "../hooks/useLocalStorage";
-import { isTestChangedFile } from "@t3tools/shared/changedFileKind";
+import { isHiddenDiffFile } from "@t3tools/shared/diffFileRules";
+import { useDiffFileRules } from "./diffs/useDiffFileRules";
 import { useHideTestFiles } from "./diffs/useHideTestFiles";
 import { useRenderedAppearance } from "../hooks/useTheme";
 import { useStableCallback } from "../hooks/useStableCallback";
@@ -277,6 +278,7 @@ export default function DiffPanel({
       : null,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const diffFileRules = useDiffFileRules(activeThread?.environmentId ?? null, activeCwd ?? null);
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -628,16 +630,6 @@ export default function DiffPanel({
       ? Math.max(0, recordedToolCallFileCount - renderablePatch.files.length)
       : 0;
   const fileStats = new Map(lazySource?.files?.map((file) => [file.path, file]));
-  const sourceLineStat =
-    isGitSelection && selectedGitSource?.files
-      ? selectedGitSource.files.reduce(
-          (total, file) => ({
-            additions: total.additions + file.additions,
-            deletions: total.deletions + file.deletions,
-          }),
-          { additions: 0, deletions: 0 },
-        )
-      : null;
   const currentLoadDiffFiles =
     isGitSelection && activeThread && preview && selectedGitSource && canReadFiles
       ? createGitDiffFileContentsLoader(getDiffFileContents, {
@@ -717,6 +709,7 @@ export default function DiffPanel({
     theme: resolvedTheme,
     previewInput: branchDiffPreviewInput,
     preview: renderablePatch,
+    fileRules: diffFileRules,
   });
   const refreshBranchDiffPreview = refreshPreviewQuery;
   const diffRefreshKey = `diff:${activeThreadRefreshKey ?? ""}`;
@@ -754,14 +747,22 @@ export default function DiffPanel({
     return { ...entry, fileKey: `${pathKey}:${occurrence}` };
   });
   const diffFileKeys = renderableFileEntries.map((file) => file.fileKey);
-  const testFileCount = renderableFiles.filter((file) =>
-    isTestChangedFile(resolveFileDiffPath(file)),
+  const hidablePaths = new Set(
+    renderableFiles
+      .map(resolveFileDiffPath)
+      .filter((path) => isHiddenDiffFile(diffFileRules, path)),
+  );
+  const hidableFileCount = renderableFiles.filter((file) =>
+    hidablePaths.has(resolveFileDiffPath(file)),
   ).length;
+  const hideFilesLabel =
+    diffFileRules.hidden.length > 0
+      ? gt("Hide test files and {setting}", { setting: "t3.json hiddenFiles" })
+      : gt("Hide test files");
   // Hiding is display-only: lazy loading indexes into the full list. A requested file stays visible.
-  const isFileShown = (file: FileDiffMetadata) => {
-    const path = resolveFileDiffPath(file);
-    return !hideTestFiles || path === selectedFilePath || !isTestChangedFile(path);
-  };
+  const isPathShown = (path: string) =>
+    !hideTestFiles || path === selectedFilePath || !isHiddenDiffFile(diffFileRules, path);
+  const isFileShown = (file: FileDiffMetadata) => isPathShown(resolveFileDiffPath(file));
   const shownFileEntries = renderableFileEntries.filter(({ fileDiff }) => isFileShown(fileDiff));
   const shownFileKeys = shownFileEntries.map((file) => file.fileKey);
   const defaultCollapsedDiffFileKeys = settings.diffFilesCollapsed
@@ -795,7 +796,18 @@ export default function DiffPanel({
     (file) => file.cacheKey?.endsWith(":pending") && isFileShown(file),
   );
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(shownFileKeys, collapsedDiffFileKeys);
-  const diffLineStat = sourceLineStat ?? getDiffLineStat(renderableFiles);
+  const diffLineStat =
+    isGitSelection && selectedGitSource?.files
+      ? selectedGitSource.files
+          .filter((file) => isPathShown(file.path))
+          .reduce(
+            (total, file) => ({
+              additions: total.additions + file.additions,
+              deletions: total.deletions + file.deletions,
+            }),
+            { additions: 0, deletions: 0 },
+          )
+      : getDiffLineStat(renderableFiles.filter(isFileShown));
   const fileTreeEntries = diffFileTreeEntries(renderableFiles.filter(isFileShown));
   const codeViewReveal = useCodeViewFileReveal();
   // Lazy files that sat above the saved position load again only when asked for.
@@ -1547,12 +1559,12 @@ export default function DiffPanel({
             {diffIgnoreWhitespace ? gt("Show whitespace changes") : gt("Hide whitespace changes")}
           </TooltipPopup>
         </Tooltip>
-        {testFileCount > 0 && (
+        {hidableFileCount > 0 && (
           <Tooltip>
             <TooltipTrigger
               render={
                 <Toggle
-                  aria-label={gt("Hide test files")}
+                  aria-label={hideFilesLabel}
                   variant="ghost"
                   size="sm"
                   pressed={hideTestFiles}
@@ -1564,11 +1576,16 @@ export default function DiffPanel({
             </TooltipTrigger>
             <TooltipPopup side="top">
               {hideTestFiles
-                ? gt(
-                    "{count, plural, one {Show {count} hidden test file} other {Show {count} hidden test files}}",
-                    { count: testFileCount },
-                  )
-                : gt("Hide test files")}
+                ? diffFileRules.hidden.length > 0
+                  ? gt(
+                      "{count, plural, one {Show {count} hidden file} other {Show {count} hidden files}}",
+                      { count: hidableFileCount },
+                    )
+                  : gt(
+                      "{count, plural, one {Show {count} hidden test file} other {Show {count} hidden test files}}",
+                      { count: hidableFileCount },
+                    )
+                : hideFilesLabel}
             </TooltipPopup>
           </Tooltip>
         )}

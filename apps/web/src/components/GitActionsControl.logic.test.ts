@@ -356,7 +356,13 @@ describe("resolveChangesTotals", () => {
           },
         }),
       ),
-      { insertions: 20, deletions: 3, baseRef: "origin/master", breakdown: null },
+      {
+        insertions: 20,
+        deletions: 3,
+        baseRef: "origin/master",
+        breakdown: null,
+        hiddenFileCount: 0,
+      },
     );
   });
 
@@ -393,6 +399,33 @@ describe("resolveChangesTotals", () => {
           generated: { additions: 0, deletions: 0 },
           docs: { additions: 0, deletions: 0 },
         },
+        hiddenFileCount: 0,
+      },
+    );
+    assert.deepEqual(
+      resolveChangesTotals(
+        dirty,
+        {
+          ...source,
+          files: [
+            { path: "a.ts", previousPath: null, additions: 4, deletions: 1 },
+            { path: "a.test.ts", previousPath: null, additions: 1000, deletions: 0 },
+          ],
+        },
+        (path) => path.endsWith(".test.ts"),
+      ),
+      {
+        insertions: 4,
+        deletions: 1,
+        baseRef: "release",
+        breakdown: {
+          code: { additions: 4, deletions: 1 },
+          tests: { additions: 0, deletions: 0 },
+          mocks: { additions: 0, deletions: 0 },
+          generated: { additions: 0, deletions: 0 },
+          docs: { additions: 0, deletions: 0 },
+        },
+        hiddenFileCount: 1,
       },
     );
     assert.deepEqual(resolveChangesTotals(dirty, source), {
@@ -400,6 +433,7 @@ describe("resolveChangesTotals", () => {
       deletions: 3,
       baseRef: "main",
       breakdown: null,
+      hiddenFileCount: 0,
     });
   });
 
