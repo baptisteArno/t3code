@@ -25,10 +25,8 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import { reviewEnvironment } from "../../state/review";
 import type { MessageResolver } from "../../i18n/messages";
-import {
-  filterPullRequestTestFiles,
-  shownPatchIndices,
-} from "../pull-requests/pullRequestFileFilters";
+import { BUILT_IN_DIFF_FILE_RULES } from "@t3tools/shared/diffFileRules";
+import { filterPullRequestFiles, shownPatchIndices } from "../pull-requests/pullRequestFileFilters";
 import { useHideTestFilesPreference } from "../pull-requests/usePullRequestFileFilter";
 
 const EMPTY_INLINE_REVIEW_COMMENTS = Object.freeze([]);
@@ -289,11 +287,12 @@ export function useReviewDiffData(input: {
     return inlineReviewComments.filter((comment) => comment.sectionId === selectedSectionId);
   }, [inlineReviewComments, selectedSectionId]);
   const shownDiff = useMemo(
-    () => filterPullRequestTestFiles(parsedDiff, hideTestFiles),
+    () => filterPullRequestFiles(parsedDiff, BUILT_IN_DIFF_FILE_RULES, hideTestFiles),
     [parsedDiff, hideTestFiles],
   );
   const fileFilter = {
     ...hideTestFilesPreference,
+    rules: BUILT_IN_DIFF_FILE_RULES,
     parsed: shownDiff,
     hiddenCount:
       parsedDiff.kind === "files" && shownDiff.kind === "files"
