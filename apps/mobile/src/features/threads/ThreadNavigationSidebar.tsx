@@ -370,7 +370,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   useThreadJumpShortcuts(listItems, handleSelectThread);
   useNextThreadAfterSendSource({
     enabled: advanceAfterSend,
-    inboxThreads: threadListV2Layout.inboxThreads,
+    nextThreadQueue: threadListV2Layout.nextThreadQueue,
     loadedEnvironmentIds: settlementEnvironmentIds,
   });
   const sidebarItemsAreEqual = (previous: SidebarListItem, item: SidebarListItem): boolean => {
