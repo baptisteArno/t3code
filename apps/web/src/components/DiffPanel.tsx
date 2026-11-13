@@ -84,6 +84,7 @@ import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
 import { getDiffHeaderClickAction } from "./diffs/diffHeaderClick";
 import { Button, InlineButton } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
+import { Spinner } from "./ui/spinner";
 import { Switch } from "./ui/switch";
 import {
   Combobox,
@@ -188,7 +189,9 @@ function DiffFileCollapseToggle({
       }
       label={collapsed ? gt("Expand diff") : gt("Collapse diff")}
     >
-      {collapsed ? (
+      {load ? (
+        <Spinner aria-hidden size="md" tone="muted" />
+      ) : collapsed ? (
         <ChevronRightIcon className="size-4 text-muted-foreground/80" />
       ) : (
         <ChevronDownIcon className="size-4 text-muted-foreground/80" />
@@ -843,7 +846,7 @@ export default function DiffPanel({
       return next;
     });
     const diffPath = resolveFileDiffPath(file.fileDiff);
-    if (lazySource) requestFile(diffPath);
+    if (lazySource) requestFile(diffPath, { urgent: true });
     codeViewReveal.request(file.fileKey);
     return diffPath;
   };
@@ -924,7 +927,7 @@ export default function DiffPanel({
   };
   const toggleDiffFileCollapsed = useStableCallback((fileKey: string) => {
     const file = renderableFileEntries.find((file) => file.fileKey === fileKey);
-    if (lazySource && file) requestFile(resolveFileDiffPath(file.fileDiff));
+    if (lazySource && file) requestFile(resolveFileDiffPath(file.fileDiff), { urgent: true });
     const pending = file?.fileDiff.cacheKey?.endsWith(":pending") === true;
     updateCollapsedDiffFiles((current) => {
       const next = new Set(current);
