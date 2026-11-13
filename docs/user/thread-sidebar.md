@@ -160,6 +160,11 @@ by default. The second keeps a quick question on top while you still have its co
 on top until you reply, settle, or snooze them. Set the window under **Oldest first**; 0 lifts only threads
 waiting on you.
 
+On web and desktop, **Settings → General → Only when a thread needs you** keeps notifications,
+sounds and toasts for those same two kinds of thread, even with Oldest first off. A long run that
+finishes, a failure, or a guest request stays silent and waits in the list. The Quick reply window
+also shows while this is on. Each device keeps its own choice; mobile push alerts are unchanged.
+
 Turn on **Settings → General → Next thread after sending** to move through that queue as you
 reply. Each message you send opens the first pinned thread that is not working, since pinned
 threads come first, then the thread at the top of the active list. Answering an approval, a
