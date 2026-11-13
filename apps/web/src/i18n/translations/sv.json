@@ -12204,5 +12204,10 @@
   "27d76249d09eb69f": "Granskningsguiden är klar",
   "faa3bb26abb39c93": "Granskningsguiden misslyckades",
   "b7df38b7d8792d78": "Öppna guiden",
-  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide"
+  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide",
+  "36e9d40f2e36fe6f": "Bara när en tråd behöver dig",
+  "6b4e8fb2ecff8940": "Avisera bara för en tråd som väntar på ditt svar, godkännande eller din plan, eller som svarade inom {minutes} min efter ditt meddelande (snabbsvarsfönster). Längre körningar, fel och gästförfrågningar förblir tysta.",
+  "bd42270b5393dd80": "Återställ ”Bara när en tråd behöver dig” till standard",
+  "bc343dee852a15e5": "En tråd som svarar inom så här många minuter efter ditt meddelande behöver dig nu, som en som väntar på ditt svar eller godkännande. ”Äldst först” lyfter den; ”Bara när en tråd behöver dig” aviserar. 0 stänger av det.",
+  "8041bb526d4c0368": "avisering filter tyst snabbsvar inmatning godkännande behöver dig nu"
 }

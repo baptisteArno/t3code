@@ -12206,5 +12206,10 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "36e9d40f2e36fe6f": "Only when a thread needs you",
+  "6b4e8fb2ecff8940": "Alert only for a thread waiting on your answer, approval or plan, or one that answered within {minutes} min of your message (Quick reply window). Longer runs, failures and guest requests stay silent.",
+  "bd42270b5393dd80": "Reset only when a thread needs you to default",
+  "bc343dee852a15e5": "A thread that answers within this many minutes of your message needs you now, like one waiting on your answer or approval. Oldest first lifts it; Only when a thread needs you alerts. 0 turns this off.",
+  "8041bb526d4c0368": "notification filter quiet quick reply input approval needs you now silent"
 }
