@@ -539,6 +539,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? [gt("In-app notifications")]
       : []),
+    ...(settings.notifyOnlyWhenNeeded !== DEFAULT_UNIFIED_SETTINGS.notifyOnlyWhenNeeded
+      ? [gt("Only when a thread needs you")]
+      : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
       ? [gt("Project Grouping")]
       : []),
@@ -730,6 +733,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      notifyOnlyWhenNeeded: DEFAULT_UNIFIED_SETTINGS.notifyOnlyWhenNeeded,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -903,6 +907,8 @@ export function GeneralSettingsPanel() {
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
   );
+  // The filter only narrows alerts, so it has nothing to act on while both kinds are off.
+  const notificationsOn = settings.notificationMode !== "off" || settings.inAppNotificationsEnabled;
   const languageValue = SUPPORTED_LOCALES.includes(settings.language)
     ? settings.language
     : SYSTEM_LANGUAGE;
@@ -927,6 +933,36 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        {notificationsOn ? (
+          <SettingsRow
+            {...setting("notify-only-when-needed")}
+            description={gt(
+              "Alert only for a thread waiting on your answer, approval or plan, or one that answered within {minutes} min of your message (Quick reply window). Longer runs, failures and guest requests stay silent.",
+              { minutes: settings.sidebarInboxQuickReplyMinutes },
+            )}
+            resetAction={
+              settings.notifyOnlyWhenNeeded !== DEFAULT_UNIFIED_SETTINGS.notifyOnlyWhenNeeded ? (
+                <SettingResetButton
+                  ariaLabel={gt("Reset only when a thread needs you to default")}
+                  onClick={() =>
+                    updateSettings({
+                      notifyOnlyWhenNeeded: DEFAULT_UNIFIED_SETTINGS.notifyOnlyWhenNeeded,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.notifyOnlyWhenNeeded}
+                onCheckedChange={(checked) =>
+                  updateSettings({ notifyOnlyWhenNeeded: Boolean(checked) })
+                }
+                aria-label={gt("Only when a thread needs you")}
+              />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="sidebar" title={gt("Sidebar")}>
@@ -1069,16 +1105,17 @@ export function GeneralSettingsPanel() {
             }
           />
         ) : null}
-        {settings.sidebarWorkingShelfEnabled &&
-        !settings.boringSidebarEnabled &&
-        settings.sidebarInboxOldestFirst ? (
+        {(settings.sidebarWorkingShelfEnabled &&
+          !settings.boringSidebarEnabled &&
+          settings.sidebarInboxOldestFirst) ||
+        (notificationsOn && settings.notifyOnlyWhenNeeded) ? (
           <SettingsRow
             {...setting("inbox-quick-reply-minutes")}
             description={
               <T>
-                A thread that answers within this many minutes of your message goes to the top,
-                while you still have its context. So does a thread waiting on your answer or
-                approval. Set 0 to lift only those.
+                A thread that answers within this many minutes of your message needs you now, like
+                one waiting on your answer or approval. Oldest first lifts it; Only when a thread
+                needs you alerts. 0 turns this off.
               </T>
             }
             resetAction={
