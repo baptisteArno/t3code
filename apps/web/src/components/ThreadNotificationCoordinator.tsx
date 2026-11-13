@@ -5,6 +5,7 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
+import { threadNeedsYouNow } from "@t3tools/client-runtime/state/thread-inbox";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
@@ -143,7 +144,13 @@ export function startThreadNotifications(
         .has(threadKey({ environmentId, threadId: thread.id }))
     )
       return;
-    const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
+    const {
+      notificationMode: mode,
+      inAppNotificationsEnabled,
+      notifyOnlyWhenNeeded,
+      sidebarInboxQuickReplyMinutes,
+    } = getClientSettings();
+    if (notifyOnlyWhenNeeded && !threadNeedsYouNow(thread, sidebarInboxQuickReplyMinutes)) return;
     const active = activeThread();
     const title =
       kind === "completion"
