@@ -55,6 +55,7 @@ vi.mock("~/state/review", () => ({
       state.previews.get(input.baseRef ?? null)!,
     branchCommits: () => state.commits,
     diffFilePatch: () => state.patch,
+    prioritizeDiffFilePatch: () => {},
     diffFileContents: {},
   },
 }));

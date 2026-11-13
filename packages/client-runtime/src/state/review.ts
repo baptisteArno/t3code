@@ -7,7 +7,6 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Semaphore from "effect/Semaphore";
 import { request } from "../rpc/client.ts";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -19,6 +18,17 @@ import {
   type QueryAnswerHandler,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { makePriorityReadQueue } from "./priorityReadQueue.ts";
+
+type DiffFilePatchInput = {
+  request: ReviewDiffPreviewInput & { file: NonNullable<ReviewDiffPreviewInput["file"]> };
+  cacheKey: string;
+  /** The preview this patch belongs to; its revisions refresh the patch. */
+  preview?: ReviewDiffPreviewInput;
+};
+
+const diffFilePatchKey = ({ cacheKey, request }: DiffFilePatchInput) =>
+  JSON.stringify([cacheKey, request.file.path, request.file.previousPath]);
 
 export function createReviewEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -29,7 +39,7 @@ export function createReviewEnvironmentAtoms<R, E>(
     >;
   } = {},
 ) {
-  const patchReads = Semaphore.makeUnsafe(4);
+  const patchReads = makePriorityReadQueue(4);
   const diffFileScheduler = createAtomCommandScheduler();
   const diffPreview = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:review:diff-preview",
@@ -87,30 +97,29 @@ export function createReviewEnvironmentAtoms<R, E>(
         input.preview === undefined
           ? undefined
           : previewRevisionFamily(JSON.stringify({ environmentId, input: input.preview })),
-      execute: (input: {
-        request: ReviewDiffPreviewInput & { file: NonNullable<ReviewDiffPreviewInput["file"]> };
-        cacheKey: string;
-        /** The preview this patch belongs to; its revisions refresh the patch. */
-        preview?: ReviewDiffPreviewInput;
-      }) =>
-        request(WS_METHODS.reviewGetDiffPreview, input.request).pipe(
-          patchReads.withPermit,
-          Effect.flatMap((result) => {
-            const source = result.sources.find(
-              (source) => source.kind === input.request.file.sourceKind,
-            );
-            return source
-              ? Effect.succeed(source)
-              : Effect.fail(
-                  new VcsUnsupportedOperationError({
-                    operation: "review.diffFilePatch",
-                    kind: "git",
-                    detail: "Diff no longer available. Refresh the comparison.",
-                  }),
-                );
-          }),
-        ),
+      execute: (input: DiffFilePatchInput) =>
+        patchReads
+          .run(diffFilePatchKey(input), request(WS_METHODS.reviewGetDiffPreview, input.request))
+          .pipe(
+            Effect.flatMap((result) => {
+              const source = result.sources.find(
+                (source) => source.kind === input.request.file.sourceKind,
+              );
+              return source
+                ? Effect.succeed(source)
+                : Effect.fail(
+                    new VcsUnsupportedOperationError({
+                      operation: "review.diffFilePatch",
+                      kind: "git",
+                      detail: "Diff no longer available. Refresh the comparison.",
+                    }),
+                  );
+            }),
+          ),
     }),
+    /** A file the user asked for: its patch read goes ahead of background loads. */
+    prioritizeDiffFilePatch: (input: DiffFilePatchInput) =>
+      patchReads.prioritize(diffFilePatchKey(input)),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,
