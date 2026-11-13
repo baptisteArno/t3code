@@ -9935,7 +9935,6 @@
   "83ca942c7163904f": "Combina los repositorios coincidentes de distintos entornos.",
   "609da998ca13521e": "Orden de los proyectos en el selector de la barra lateral y en la paleta de comandos.",
   "882861994bc0bc59": "El hilo que lleva más tiempo esperando se queda arriba de la bandeja de entrada. Los hilos que vuelven después se colocan al final.",
-  "d48a9fcbf70a81a3": "Un hilo que responde en esta cantidad de minutos tras tu mensaje sube arriba, mientras aún tienes el contexto. También un hilo que espera tu respuesta o aprobación. Con 0 solo suben esos.",
   "820c839cb80267e5": "Después de enviar un mensaje, responder una solicitud o resolver o posponer el hilo abierto, abre el primer hilo de la bandeja de entrada, o el hilo desde el que empezaste uno nuevo. Con la bandeja vacía, empieza un hilo nuevo.",
   "174b12cbc39a09ab": "Agrupa los hilos activos y en seguimiento en la sección En curso. Vuelven a la bandeja de entrada cuando te necesitan. La barra lateral simple (en Experimentos) no tiene sección En curso.",
   "e815f49e5abedcfd": "Pregunta antes de desfijar un hilo de la sección de fijados.",
@@ -12211,5 +12210,10 @@
   "27d76249d09eb69f": "Guía de revisión lista",
   "faa3bb26abb39c93": "Falló la guía de revisión",
   "b7df38b7d8792d78": "Abrir guía",
-  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión"
+  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión",
+  "36e9d40f2e36fe6f": "Solo cuando un hilo te necesita",
+  "6b4e8fb2ecff8940": "Avisar solo de un hilo que espera tu respuesta, aprobación o plan, o de uno que respondió en los {minutes} min siguientes a tu mensaje (ventana de respuesta rápida). Las ejecuciones largas, los fallos y las solicitudes de invitados no avisan.",
+  "bd42270b5393dd80": "Restablecer «Solo cuando un hilo te necesita»",
+  "bc343dee852a15e5": "Un hilo que responde en estos minutos tras tu mensaje te necesita ahora, como uno que espera tu respuesta o aprobación. «Más antiguos primero» lo sube; «Solo cuando un hilo te necesita» avisa. 0 lo desactiva.",
+  "8041bb526d4c0368": "notificación filtro silencio respuesta rápida entrada aprobación te necesita ahora"
 }
