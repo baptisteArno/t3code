@@ -12088,5 +12088,10 @@
   "27d76249d09eb69f": "Guía de revisión lista",
   "faa3bb26abb39c93": "Falló la guía de revisión",
   "b7df38b7d8792d78": "Abrir guía",
-  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión"
+  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión",
+  "36e9d40f2e36fe6f": "Solo cuando un hilo te necesita",
+  "6b4e8fb2ecff8940": "Avisar solo de un hilo que espera tu respuesta, aprobación o plan, o de uno que respondió en los {minutes} min siguientes a tu mensaje (ventana de respuesta rápida). Las ejecuciones largas, los fallos y las solicitudes de invitados no avisan.",
+  "bd42270b5393dd80": "Restablecer «Solo cuando un hilo te necesita»",
+  "bc343dee852a15e5": "Un hilo que responde en estos minutos tras tu mensaje te necesita ahora, como uno que espera tu respuesta o aprobación. «Más antiguos primero» lo sube; «Solo cuando un hilo te necesita» avisa. 0 lo desactiva.",
+  "8041bb526d4c0368": "notificación filtro silencio respuesta rápida entrada aprobación te necesita ahora"
 }

@@ -12093,5 +12093,10 @@
   "27d76249d09eb69f": "Review-Leitfaden bereit",
   "faa3bb26abb39c93": "Review-Leitfaden fehlgeschlagen",
   "b7df38b7d8792d78": "Leitfaden öffnen",
-  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden"
+  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden",
+  "36e9d40f2e36fe6f": "Nur wenn ein Thread dich braucht",
+  "6b4e8fb2ecff8940": "Nur bei einem Thread benachrichtigen, der auf deine Antwort, Freigabe oder deinen Plan wartet, oder der innerhalb von {minutes} Min. nach deiner Nachricht geantwortet hat (Schnellantwort-Fenster). Längere Läufe, Fehler und Gastanfragen bleiben stumm.",
+  "bd42270b5393dd80": "„Nur wenn ein Thread dich braucht“ auf Standard zurücksetzen",
+  "bc343dee852a15e5": "Ein Thread, der innerhalb so vieler Minuten nach deiner Nachricht antwortet, braucht dich jetzt, wie einer, der auf deine Antwort oder Freigabe wartet. „Älteste zuerst“ hebt ihn nach oben; „Nur wenn ein Thread dich braucht“ benachrichtigt. 0 schaltet das ab.",
+  "8041bb526d4c0368": "Benachrichtigung Filter leise Schnellantwort Eingabe Freigabe braucht dich jetzt stumm"
 }
