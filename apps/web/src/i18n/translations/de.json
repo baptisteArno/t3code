@@ -10192,7 +10192,6 @@
   "83ca942c7163904f": "Gleiche Repositorys aus verschiedenen Umgebungen zusammenfassen.",
   "609da998ca13521e": "Reihenfolge der Projekte in der Projektauswahl der Seitenleiste und in der Befehlspalette.",
   "882861994bc0bc59": "Der Thread, der am längsten wartet, bleibt oben im Posteingang. Threads, die später zurückkommen, reihen sich unten ein.",
-  "d48a9fcbf70a81a3": "Ein Thread, der innerhalb so vieler Minuten nach deiner Nachricht antwortet, rückt nach oben, solange du den Kontext noch im Kopf hast. Ebenso ein Thread, der auf deine Antwort oder Freigabe wartet. Mit 0 rücken nur diese nach oben.",
   "820c839cb80267e5": "Nachdem du eine Nachricht sendest, eine Anfrage beantwortest oder den offenen Thread erledigst oder zurückstellst, öffne den obersten Thread im Posteingang oder den Thread, von dem aus du einen neuen begonnen hast. Bei leerem Posteingang beginne einen neuen Thread.",
   "174b12cbc39a09ab": "Laufende und überwachende Threads im Bereich „In Arbeit“ bündeln. Sie kehren in den Posteingang zurück, sobald sie dich brauchen. Die schlichte Seitenleiste unter Labs hat keinen Bereich „In Arbeit“.",
   "e815f49e5abedcfd": "Vor dem Loslösen eines Threads aus dem Bereich „Angeheftet“ nachfragen.",
@@ -12477,5 +12476,10 @@
   "27d76249d09eb69f": "Review-Leitfaden bereit",
   "faa3bb26abb39c93": "Review-Leitfaden fehlgeschlagen",
   "b7df38b7d8792d78": "Leitfaden öffnen",
-  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden"
+  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden",
+  "36e9d40f2e36fe6f": "Nur wenn ein Thread dich braucht",
+  "6b4e8fb2ecff8940": "Nur bei einem Thread benachrichtigen, der auf deine Antwort, Freigabe oder deinen Plan wartet, oder der innerhalb von {minutes} Min. nach deiner Nachricht geantwortet hat (Schnellantwort-Fenster). Längere Läufe, Fehler und Gastanfragen bleiben stumm.",
+  "bd42270b5393dd80": "„Nur wenn ein Thread dich braucht“ auf Standard zurücksetzen",
+  "bc343dee852a15e5": "Ein Thread, der innerhalb so vieler Minuten nach deiner Nachricht antwortet, braucht dich jetzt, wie einer, der auf deine Antwort oder Freigabe wartet. „Älteste zuerst“ hebt ihn nach oben; „Nur wenn ein Thread dich braucht“ benachrichtigt. 0 schaltet das ab.",
+  "8041bb526d4c0368": "Benachrichtigung Filter leise Schnellantwort Eingabe Freigabe braucht dich jetzt stumm"
 }

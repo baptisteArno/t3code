@@ -10191,7 +10191,6 @@
   "83ca942c7163904f": "Combina repositórios correspondentes entre ambientes.",
   "609da998ca13521e": "Ordem dos projetos no seletor da barra lateral e na paleta de comandos.",
   "882861994bc0bc59": "A thread que espera há mais tempo fica no topo da caixa de entrada. As threads que voltam depois entram no final.",
-  "d48a9fcbf70a81a3": "Uma thread que responde dentro desses minutos após sua mensagem vai para o topo, enquanto você ainda tem o contexto. O mesmo vale para uma thread esperando sua resposta ou aprovação. Com 0, só essas sobem.",
   "820c839cb80267e5": "Depois de enviar uma mensagem, responder a uma solicitação ou concluir ou adiar a thread aberta, abre a primeira thread da caixa de entrada, ou a thread a partir da qual você iniciou uma nova. Com a caixa de entrada vazia, inicia uma nova thread.",
   "174b12cbc39a09ab": "Agrupa as threads em andamento e em monitoramento em uma seção Trabalhando. Elas voltam para a caixa de entrada quando precisam de você. A barra lateral sem graça do Labs não tem seção Trabalhando.",
   "e815f49e5abedcfd": "Pergunta antes de desafixar uma thread da seção de fixadas.",
@@ -12477,5 +12476,10 @@
   "27d76249d09eb69f": "Guia de revisão pronto",
   "faa3bb26abb39c93": "O guia de revisão falhou",
   "b7df38b7d8792d78": "Abrir guia",
-  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão"
+  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão",
+  "36e9d40f2e36fe6f": "Só quando uma thread precisar de você",
+  "6b4e8fb2ecff8940": "Avisar só de uma thread que aguarda sua resposta, aprovação ou plano, ou de uma que respondeu até {minutes} min depois da sua mensagem (janela de resposta rápida). Execuções longas, falhas e pedidos de convidados ficam em silêncio.",
+  "bd42270b5393dd80": "Redefinir “Só quando uma thread precisar de você” para o padrão",
+  "bc343dee852a15e5": "Uma thread que responde até esses minutos depois da sua mensagem precisa de você agora, como uma que aguarda sua resposta ou aprovação. “Mais antigas primeiro” a sobe; “Só quando uma thread precisar de você” avisa. 0 desativa.",
+  "8041bb526d4c0368": "notificação filtro silêncio resposta rápida entrada aprovação precisa de você agora"
 }
