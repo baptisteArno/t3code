@@ -60,16 +60,30 @@ export function useReviewFilePatches({
   if (requested.scope !== scope || paths.length !== previousPaths.length) {
     setRequested({ scope, paths });
   }
-  const queries = reviewFileQueries({
-    environmentId,
-    cwd,
-    source,
-    baseRef,
-    ignoreWhitespace,
-    previewInput,
-    scope,
-    requested,
-    fileRules,
+  const patchTarget = (file: ReviewFile): ReviewPatchTarget | null =>
+    !environmentId || !cwd || !source
+      ? null
+      : {
+          environmentId,
+          input: {
+            cacheKey: scope,
+            ...(previewInput ? { preview: previewInput } : {}),
+            request: {
+              cwd,
+              ...(baseRef ? { baseRef } : {}),
+              ...(source.kind === "commit" ? { commitSha: source.id } : {}),
+              ignoreWhitespace,
+              file: { path: file.path, previousPath: file.previousPath, sourceKind: source.kind },
+            },
+          },
+        };
+  const requestedPaths = new Set([
+    ...automaticPaths,
+    ...(requested.scope === scope ? requested.paths : []),
+  ]);
+  const queries = files.flatMap((file, index) => {
+    const target = requestedPaths.has(file.path) ? patchTarget(file) : null;
+    return target ? [{ index, target, query: reviewEnvironment.diffFilePatch(target) }] : [];
   });
   const queriedPatchesAtom = reviewPatchesAtom(
     JSON.stringify([theme, queries.map(({ index, target }) => [index, target])]),
@@ -105,8 +119,16 @@ export function useReviewFilePatches({
     if (queries.some(({ index }) => index === settledFileCount)) return;
     requestFiles(Array.from({ length: 4 }, (_, index) => settledFileCount + index));
   };
-  const requestFile = (path: string) =>
-    requestFiles([files.findIndex((file) => file.path === path)]);
+  /** `urgent` is for a file the user opened: its read goes ahead of background loads. */
+  const requestFile = (path: string, { urgent = false } = {}) => {
+    const index = files.findIndex((file) => file.path === path);
+    const file = files[index];
+    const patch = patches.get(index);
+    const target =
+      urgent && file && (!patch || patch._tag === "Initial") ? patchTarget(file) : null;
+    if (target) reviewEnvironment.prioritizeDiffFilePatch(target.input);
+    requestFiles([index]);
+  };
   const renderableFiles = source
     ? files.flatMap((file, index): FileDiffMetadata[] => {
         const result = patches.get(index);
@@ -170,61 +192,6 @@ export function useReviewFilePatches({
   };
 }
 
-function reviewFileQueries({
-  environmentId,
-  cwd,
-  source,
-  baseRef,
-  ignoreWhitespace,
-  previewInput,
-  scope,
-  requested,
-  fileRules,
-}: {
-  environmentId: EnvironmentId | undefined;
-  cwd: string | undefined;
-  source: ReviewDiffPreviewSource | null;
-  baseRef: string | null;
-  ignoreWhitespace: boolean;
-  previewInput: ReviewDiffPreviewInput | undefined;
-  scope: string;
-  requested: { scope: string; paths: string[] };
-  fileRules: DiffFileRules;
-}) {
-  const files = sortedReviewFiles(source, fileRules);
-  const paths = new Set([
-    ...files.slice(0, INITIAL_FILE_COUNT).map((file) => file.path),
-    ...(requested.scope === scope ? requested.paths : []),
-  ]);
-  const queries =
-    !environmentId || !cwd || !source
-      ? []
-      : files
-          .flatMap((file, index) => (paths.has(file.path) ? [{ file, index }] : []))
-          .map(({ file, index }) => {
-            const target: ReviewPatchTarget = {
-              environmentId,
-              input: {
-                cacheKey: scope,
-                ...(previewInput ? { preview: previewInput } : {}),
-                request: {
-                  cwd,
-                  ...(baseRef ? { baseRef } : {}),
-                  ...(source.kind === "commit" ? { commitSha: source.id } : {}),
-                  ignoreWhitespace,
-                  file: {
-                    path: file.path,
-                    previousPath: file.previousPath,
-                    sourceKind: source.kind,
-                  },
-                },
-              },
-            };
-            return { index, target, query: reviewEnvironment.diffFilePatch(target) };
-          });
-  return queries;
-}
-
 // Lazy loading requests files by their index here, so the configured order applies before it.
 function sortedReviewFiles(source: ReviewDiffPreviewSource | null, fileRules: DiffFileRules) {
   const files = source?.files?.toSorted((a, b) => filePathCollator.compare(a.path, b.path)) ?? [];
@@ -232,6 +199,7 @@ function sortedReviewFiles(source: ReviewDiffPreviewSource | null, fileRules: Di
 }
 
 type ReviewPatchTarget = Parameters<typeof reviewEnvironment.diffFilePatch>[0];
+type ReviewFile = ReturnType<typeof sortedReviewFiles>[number];
 
 const parsedPatchAtom = Atom.family((key: string) => {
   const [theme, target] = JSON.parse(key) as ["light" | "dark", ReviewPatchTarget];
