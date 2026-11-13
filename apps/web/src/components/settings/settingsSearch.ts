@@ -790,6 +790,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("notification toast popup completion input approval failure")],
   },
   {
+    id: "notify-only-when-needed",
+    title: msg("Only when a thread needs you"),
+    to: "/settings/general",
+    searchTerms: [msg("notification filter quiet quick reply input approval needs you now silent")],
+  },
+  {
     id: "language",
     title: msg("Language"),
     to: "/settings/general",
