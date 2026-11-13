@@ -89,9 +89,13 @@ export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
   const newestFirst = sortNewestFirst(threads, timestamps);
   if (!oldestFirst) return newestFirst;
   const queue = newestFirst.reverse();
-  const needsYouNow = (thread: T) =>
-    isWaitingOnUser(thread) || answeredWithin(thread, quickReplyMinutes * 60_000);
-  return [...queue.filter(needsYouNow), ...queue.filter((thread) => !needsYouNow(thread))];
+  const lifted = (thread: T) => threadNeedsYouNow(thread, quickReplyMinutes);
+  return [...queue.filter(lifted), ...queue.filter((thread) => !lifted(thread))];
+}
+
+/** Shared by Oldest first and the "only when a thread needs you" notifications, so they agree. */
+export function threadNeedsYouNow(thread: InboxThreadInput, quickReplyMinutes: number): boolean {
+  return isWaitingOnUser(thread) || answeredWithin(thread, quickReplyMinutes * 60_000);
 }
 
 function isWaitingOnUser(thread: InboxThreadInput): boolean {
