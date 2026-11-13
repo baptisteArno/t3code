@@ -12197,5 +12197,10 @@
   "27d76249d09eb69f": "Guide de revue prêt",
   "faa3bb26abb39c93": "Échec du guide de revue",
   "b7df38b7d8792d78": "Ouvrir le guide",
-  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue"
+  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue",
+  "36e9d40f2e36fe6f": "Seulement quand un fil a besoin de vous",
+  "6b4e8fb2ecff8940": "Alerter seulement pour un fil qui attend votre réponse, votre approbation ou votre plan, ou qui a répondu dans les {minutes} min suivant votre message (fenêtre de réponse rapide). Les exécutions longues, les échecs et les demandes d'invités restent silencieux.",
+  "bd42270b5393dd80": "Réinitialiser « Seulement quand un fil a besoin de vous »",
+  "bc343dee852a15e5": "Un fil qui répond dans ce nombre de minutes après votre message a besoin de vous maintenant, comme un fil qui attend votre réponse ou votre approbation. « Plus anciens d'abord » le remonte ; « Seulement quand un fil a besoin de vous » alerte. 0 désactive cela.",
+  "8041bb526d4c0368": "notification filtre silencieux réponse rapide saisie approbation besoin de vous maintenant"
 }
