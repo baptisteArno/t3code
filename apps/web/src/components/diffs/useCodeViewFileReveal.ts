@@ -73,7 +73,15 @@ export function createCodeViewFileReveal() {
   const flush = () => {
     if (pending === null || viewer === null) return;
     const item = viewer.getItem(pending.id);
-    if (!viewer.getInstance() || item === undefined || item.collapsed === true) return;
+    if (!viewer.getInstance() || item === undefined) return;
+    // A file still loading shows only its header; bring that header up now, then the file once it loads.
+    if (item.collapsed === true) {
+      if (!pending.positionedFile) {
+        pending.positionedFile = true;
+        viewer.scrollTo({ type: "item", id: pending.id, align: "start" });
+      }
+      return;
+    }
     const renderedItems = viewer.getInstance()?.getRenderedItems?.();
     if (pending.range && renderedItems) {
       const rendered = renderedItems.find((entry) => entry.id === pending?.id);

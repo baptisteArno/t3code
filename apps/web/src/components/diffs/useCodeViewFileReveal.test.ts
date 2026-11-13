@@ -26,10 +26,14 @@ describe("createCodeViewFileReveal", () => {
     reveal.request("a");
 
     expect(view.scrolls).toEqual([{ type: "item", id: "a", align: "start" }]);
+    // A file still loading is collapsed to its header: the header comes up at once, and the
+    // destination is positioned again once the file opens.
     const range = { start: 12, side: "deletions", end: 15, endSide: "additions" } as const;
     view.collapsed.add("a");
     reveal.request("a", range);
-    expect(view.scrolls).toHaveLength(1);
+    reveal.flush();
+    expect(view.scrolls).toHaveLength(2);
+    expect(view.scrolls.at(-1)).toEqual({ type: "item", id: "a", align: "start" });
     view.collapsed.delete("a");
     reveal.flush();
     expect(view.scrolls.at(-1)).toEqual({ type: "range", id: "a", range, align: "center" });
