@@ -160,7 +160,9 @@ waiting on you.
 
 Turn on **Settings → General → Next thread after sending** to move through that queue as you
 reply. Each message you send opens the first pinned thread that is not working, since pinned
-threads come first, then the thread at the top of the active list. When no such thread is left, a
+threads come first, then the thread at the top of the active list. Answering an approval, a
+question, a secret or a link request does the same once nothing else in that thread waits on you,
+including when you decline. When no such thread is left, a
 new thread opens. On web and desktop, while that new thread is still empty, the first pinned thread
 to stop working or thread to come back to the active list opens in its place. Each device keeps its
 own choice. On web and desktop, a new thread you start from another thread is the exception:

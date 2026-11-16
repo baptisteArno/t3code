@@ -37,6 +37,7 @@ import { peerLinkEnvironment, useLinkableMachines } from "../../state/peerLinks"
 import { mintPairingCodeOn } from "../../state/peerPairingCode";
 import { useEnvironmentScope, usePreparedConnection } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAdvanceAfterAnswer } from "./nextThreadAfterSend";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { Button } from "../../components/ui/Button";
@@ -117,6 +118,7 @@ function PendingLinkRequest(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const beginAnswer = useAdvanceAfterAnswer();
   const canAnswer = useAtomValue(
     peerLinkEnvironment.answerRequest.permissionAtom(props.environmentId),
   );
@@ -125,10 +127,13 @@ function PendingLinkRequest(props: {
     if (input === null) return;
     setDeclining(true);
     setError(null);
+    const advance = beginAnswer();
     const result = await answer({ environmentId: props.environmentId, input }).finally(() =>
       setDeclining(false),
     );
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+    if (result._tag === "Success") {
+      advance({ environmentId: props.environmentId, threadId: item.threadId }, item.id);
+    } else if (!isAtomCommandInterrupted(result)) {
       setError(linkRequestFailureMessage(squashAtomCommandFailure(result), m));
     }
   };
@@ -221,6 +226,7 @@ function LinkRequestSheet(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const beginAnswer = useAdvanceAfterAnswer();
   const selected = choice ?? linkRequestInitialMachine(item, machines);
   const target = linkRequestTarget(item, machines, selected, m);
   const targetName =
@@ -280,6 +286,7 @@ function LinkRequestSheet(props: {
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    const advance = beginAnswer();
     const input = await prepareAnswer();
     const result =
       input === null ? null : await answer({ environmentId: props.environmentId, input });
@@ -289,6 +296,7 @@ function LinkRequestSheet(props: {
     if (result._tag === "Success") {
       setPairingCode("");
       props.onClose();
+      advance({ environmentId: props.environmentId, threadId: item.threadId }, item.id);
     } else if (!isAtomCommandInterrupted(result)) {
       setError(linkRequestFailureMessage(squashAtomCommandFailure(result), m));
     }
