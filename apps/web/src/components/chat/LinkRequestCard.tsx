@@ -23,11 +23,13 @@ import {
   type EnvironmentId,
   type OrchestrationV2ProjectedTurnItem,
 } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { CheckIcon, LinkIcon, MinusIcon, XIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
+import { useAdvanceAfterAnswer } from "../../hooks/useAdvanceAfterSend";
 import { useEnvironmentScope, usePreparedConnection } from "../../state/session";
 import { mintPairingCodeOn } from "../../state/peerPairingCode";
 import { peerLinkEnvironment, useLinkableMachines } from "../../state/peerLinks";
@@ -94,6 +96,7 @@ function PendingLinkRequest(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const canAnswer = useAtomValue(
     peerLinkEnvironment.answerRequest.permissionAtom(props.environmentId),
   );
@@ -107,7 +110,9 @@ function PendingLinkRequest(props: {
     const result = await answer({ environmentId: props.environmentId, input }).finally(() =>
       setDeclining(false),
     );
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+    if (result._tag === "Success") {
+      advanceAfterAnswer(scopeThreadRef(props.environmentId, item.threadId), item.id);
+    } else if (!isAtomCommandInterrupted(result)) {
       pipe(squashAtomCommandFailure(result), linkRequestFailureMessage, setError);
     }
   };
@@ -192,6 +197,7 @@ function LinkRequestDialog(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const selected = choice ?? linkRequestInitialMachine(item, machines);
   const target = linkRequestTarget(item, machines, selected);
   const targetName = target.kind === "machine" ? target.label : linkRequestTargetName(item);
@@ -276,6 +282,7 @@ function LinkRequestDialog(props: {
     if (result._tag === "Success") {
       // The card switches to its answered row once the item updates.
       close();
+      advanceAfterAnswer(scopeThreadRef(props.environmentId, item.threadId), item.id);
     } else if (!isAtomCommandInterrupted(result)) {
       pipe(squashAtomCommandFailure(result), linkRequestFailureMessage, setError);
     }

@@ -29,6 +29,7 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/
 import { SecretTextInput } from "../../components/ui/SecretTextInput";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAdvanceAfterAnswer } from "./nextThreadAfterSend";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
@@ -81,6 +82,7 @@ function PendingSecretRequestForm(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const beginAnswer = useAdvanceAfterAnswer();
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const sources = secretRequestSources(config, config?.settings.secretProviders ?? {});
   const [sourceId, setSourceId] = useState<SecretProviderId | null>(null);
@@ -98,6 +100,7 @@ function PendingSecretRequestForm(props: {
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
+    const advance = beginAnswer();
     const result = await answer({ environmentId: props.environmentId, input }).finally(() => {
       inFlight.current = false;
       setSubmitting(false);
@@ -105,6 +108,7 @@ function PendingSecretRequestForm(props: {
     if (result._tag === "Success") {
       setSecret("");
       setReference("");
+      advance({ environmentId: props.environmentId, threadId: item.threadId }, item.id);
       return;
     }
     if (!isAtomCommandInterrupted(result)) {

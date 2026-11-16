@@ -250,7 +250,7 @@ export function WorkingSectionSettings() {
           <SettingsSwitchRow
             icon="arrow.right.circle"
             label="Next thread after sending"
-            subtitle="After you send a message, open the thread at the top of the inbox. When the inbox is empty, start a new thread."
+            subtitle="After you send a message or answer a request, open the thread at the top of the inbox. When the inbox is empty, start a new thread."
             value={advanceAfterSend}
             onValueChange={(value) => savePreferences({ advanceAfterSend: value })}
           />

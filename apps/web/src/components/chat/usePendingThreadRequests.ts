@@ -24,7 +24,9 @@ import {
   type DraftId,
   useComposerDraftStore,
 } from "../../composerDraftStore";
+import { useAdvanceAfterAnswer } from "../../hooks/useAdvanceAfterSend";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   getUploadedAttachments,
   refreshExpiredAttachmentUploads,
@@ -300,6 +302,7 @@ export function usePendingThreadRequests(input: {
   const dismissThreadUserInput = useAtomCommand(threadEnvironment.dismissUserInput, {
     reportFailure: false,
   });
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const userInputResponsesInFlight = useRef(new Set<string>());
   // In the order the text went into the thread draft, which is how a copy is found again.
   const displacedAnswers = useRef<
@@ -384,6 +387,16 @@ export function usePendingThreadRequests(input: {
     return result;
   };
   const onRespondToApprovalStable = useStableCallback(onRespondToApproval);
+  // The composer declines approvals on its way to sending, so only an answer given here advances.
+  const onAnswerApproval: typeof onRespondToApproval = async (requestId, decision, feedback) => {
+    const threadId = activeThreadId;
+    const result = await onRespondToApproval(requestId, decision, feedback);
+    if (threadId && result?._tag === "Success") {
+      advanceAfterAnswer(scopeThreadRef(environmentId, threadId), requestId);
+    }
+    return result;
+  };
+  const onAnswerApprovalStable = useStableCallback(onAnswerApproval);
 
   const onRespondToUserInput = async (
     requestId: RuntimeRequestId,
@@ -484,6 +497,8 @@ export function usePendingThreadRequests(input: {
           activeThreadId,
           error instanceof Error ? error.message : "Failed to submit user input.",
         );
+      } else if (result._tag === "Success") {
+        advanceAfterAnswer(scopeThreadRef(environmentId, activeThreadId), requestId);
       }
       return result;
     };
@@ -511,6 +526,9 @@ export function usePendingThreadRequests(input: {
       );
     }
     setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+    if (result._tag === "Success") {
+      advanceAfterAnswer(scopeThreadRef(environmentId, activeThreadId), requestId);
+    }
     return result;
   };
   const onDismissUserInputStable = useStableCallback(onDismissUserInput);
@@ -666,6 +684,7 @@ export function usePendingThreadRequests(input: {
     activePendingIsResponding,
     respondingRequestIds,
     onRespondToApproval: onRespondToApprovalStable,
+    onAnswerApproval: onAnswerApprovalStable,
     onDismissUserInput: onDismissUserInputStable,
     onSelectActivePendingUserInputOption: onSelectActivePendingUserInputOptionStable,
     onChangeActivePendingUserInputCustomAnswer,
