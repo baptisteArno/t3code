@@ -1043,7 +1043,7 @@ export function GeneralSettingsPanel() {
         {settings.sidebarWorkingShelfEnabled && !settings.boringSidebarEnabled ? (
           <SettingsRow
             title={searchableSetting("advance-after-send").title}
-            description="After you send a message, open the thread at the top of the inbox, or return to the thread you started a new one from. When the inbox is empty, start a new thread."
+            description="After you send a message or answer a request, open the thread at the top of the inbox, or return to the thread you started a new one from. When the inbox is empty, start a new thread."
             resetAction={
               settings.sidebarAdvanceAfterSend !==
               DEFAULT_UNIFIED_SETTINGS.sidebarAdvanceAfterSend ? (

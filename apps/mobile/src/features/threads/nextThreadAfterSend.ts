@@ -1,9 +1,20 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { useEffect } from "react";
+import { threadAsksUserBesides } from "@t3tools/client-runtime/state/thread-requests";
+import {
+  isListedThreadLineage,
+  type EnvironmentId,
+  type ProjectId,
+  type ScopedThreadRef,
+  type ThreadId,
+} from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import { createContext, use, useEffect } from "react";
+import { KeyboardController } from "react-native-keyboard-controller";
 
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { uuidv4 } from "../../lib/uuid";
+import { appAtomRegistry } from "../../state/atom-registry";
+import { environmentThreadDetails } from "../../state/threads";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import { resolveNextThreadAfterSend } from "./threadListV2";
 
@@ -60,5 +71,44 @@ export function useAdvanceAfterSend() {
           : { environmentId: String(next.environmentId), threadId: String(next.id) },
     });
     return true;
+  };
+}
+
+/** The open thread screen's scope, aborted once it shows another thread or hides. */
+export const ThreadScreenScopeContext = createContext<(() => AbortSignal) | null>(null);
+
+/**
+ * With Next thread after sending on, answering what a thread asked opens the next thread, like a
+ * send, once nothing else in it waits on the user. Begin before sending the answer, so a thread
+ * the user left meanwhile stays put, then call the result once the answer succeeds.
+ */
+export function useAdvanceAfterAnswer(readScreenScope?: () => AbortSignal) {
+  const advanceAfterSend = useAdvanceAfterSend();
+  const contextScope = use(ThreadScreenScopeContext);
+  const screenScope = readScreenScope ?? contextScope;
+  return () => {
+    const scope = screenScope?.();
+    return (threadRef: ScopedThreadRef, answeredId: string) => {
+      if (scope === undefined || scope.aborted) return;
+      const projection = Option.getOrNull(
+        appAtomRegistry.get(environmentThreadDetails.stateAtom(threadRef)).data,
+      );
+      if (
+        projection === null ||
+        !isListedThreadLineage(projection.thread.lineage) ||
+        threadAsksUserBesides(projection, answeredId)
+      ) {
+        return;
+      }
+      if (
+        advanceAfterSend({
+          environmentId: threadRef.environmentId,
+          threadId: threadRef.threadId,
+          projectId: projection.thread.projectId,
+        })
+      ) {
+        void KeyboardController.dismiss();
+      }
+    };
   };
 }
