@@ -26,7 +26,10 @@ import { T, useMessages, Var } from "gt-react";
 import { CheckIcon, ExternalLinkIcon, LockIcon, MinusIcon, ShieldCheckIcon } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+
 import { isSecretsFeatureEnabled } from "../../env";
+import { useAdvanceAfterAnswer } from "../../hooks/useAdvanceAfterSend";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -89,6 +92,7 @@ function PendingSecretRequestForm(props: {
     reportFailure: false,
     reportDefect: false,
   });
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const sources = useSecretRequestSources(props.environmentId);
   const [sourceId, setSourceId] = useState<SecretProviderId | null>(null);
   const source = sources.find((candidate) => candidate.id === sourceId) ?? null;
@@ -112,6 +116,7 @@ function PendingSecretRequestForm(props: {
     if (result._tag === "Success") {
       setSecret("");
       setReference("");
+      advanceAfterAnswer(scopeThreadRef(props.environmentId, item.threadId), item.id);
       return;
     }
     if (!isAtomCommandInterrupted(result)) {

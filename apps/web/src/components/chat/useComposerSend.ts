@@ -99,13 +99,9 @@ import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
 import { useClientSettingsHydrated } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { useAdvanceAfterAnswer, useOpenThreadAfterSend } from "../../hooks/useAdvanceAfterSend";
 import { environmentPresentations } from "../../state/presentation";
-import {
-  nextThreadAfterSend,
-  nextThreadAfterSendEnabled,
-  takeDraftOrigin,
-  waitForInboxReturn,
-} from "../../settleAndAdvance";
+import { nextThreadAfterSend, nextThreadAfterSendEnabled } from "../../settleAndAdvance";
 import {
   approvalRedirectNotice,
   composerDraftContentChanged,
@@ -356,6 +352,8 @@ export function useComposerSend(input: ComposerSendInput) {
   const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
+  const openThreadAfterSend = useOpenThreadAfterSend();
+  const advanceAfterAnswer = useAdvanceAfterAnswer();
   const clientSettingsHydrated = useClientSettingsHydrated();
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
     reportFailure: false,
@@ -1125,6 +1123,12 @@ export function useComposerSend(input: ComposerSendInput) {
           promptRef.current = "";
           clearComposerDraftContent(composerDraftTarget);
           composerRef.current?.resetCursorState();
+          if (advancesAfterSend) {
+            advanceAfterAnswer(
+              scopeThreadRef(environmentId, threadIdForSend),
+              approvalFeedbackTarget.requestId,
+            );
+          }
         }
         return;
       }
@@ -1454,28 +1458,13 @@ export function useComposerSend(input: ComposerSendInput) {
             ? nextThreadAfterSend(scopeThreadRef(environmentId, threadIdForSend))
             : undefined;
         // Leave a sent draft's route before it finalizes, or its redirect takes the route back.
-        let advanced = false;
-        if (nextAfterSend === null) {
-          const opened = await handleNewThread(
+        const advanced =
+          nextAfterSend !== undefined &&
+          (await openThreadAfterSend(
+            nextAfterSend,
+            scopeThreadRef(environmentId, threadIdForSend),
             scopeProjectRef(activeProject.environmentId, activeProject.id),
-          );
-          if (opened) {
-            const openedRef = scopeThreadRef(activeProject.environmentId, opened.threadId);
-            // This draft opened by itself, so sending it goes to the top of the inbox.
-            takeDraftOrigin(openedRef);
-            waitForInboxReturn({
-              draftRef: openedRef,
-              sentRef: scopeThreadRef(environmentId, threadIdForSend),
-            });
-          }
-          advanced = opened !== null;
-        } else if (nextAfterSend) {
-          await navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(nextAfterSend),
-          });
-          advanced = true;
-        }
+          ));
         // A draft still on screen finalizes once its thread route takes over.
         if (sentDraftThreadRef) {
           if (
