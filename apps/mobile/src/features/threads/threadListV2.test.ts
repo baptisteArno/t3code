@@ -37,6 +37,7 @@ import {
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
   layoutThreadListV2RowMenuActions,
+  isStillQueued,
   resolveNextThreadAfterSend,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SwipeActions,
@@ -355,14 +356,68 @@ describe("resolveNextThreadAfterSend", () => {
     ["past the sent thread", [thread("a"), thread("b")], "a", "b"],
     ["past an environment without its config", [thread("a", remote), thread("b")], "c", "b"],
     ["nothing when only the sent thread is left", [thread("a")], "a", null],
-  ] as const)("picks %s", (_, nextThreadQueue, sentId, expected) => {
-    expect(
-      resolveNextThreadAfterSend({
-        nextThreadQueue,
-        sentThreadKey: `${environmentId}:${sentId}`,
-        loadedEnvironmentIds: new Set([environmentId]),
-      })?.id ?? null,
-    ).toBe(expected);
+    ["past a thread no longer queued", [thread("a"), thread("b")], "c", "b", ["a"]],
+  ] as const)(
+    "picks %s",
+    (_, nextThreadQueue, leavingId, expected, unqueuedIds: readonly string[] = []) => {
+      expect(
+        resolveNextThreadAfterSend({
+          nextThreadQueue,
+          leavingThreadKey: `${environmentId}:${leavingId}`,
+          loadedEnvironmentIds: new Set([environmentId]),
+          isQueued: (queued) => !unqueuedIds.includes(queued.id),
+        })?.id ?? null,
+      ).toBe(expected);
+    },
+  );
+});
+
+describe("isStillQueued", () => {
+  const running = {
+    status: "running" as const,
+    activeRunId: null,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerName: "Codex",
+    lastError: null,
+    updatedAt: NOW,
+  };
+  it.each([
+    ["an active thread", makeThread({ id: ThreadId.make("a"), title: "A" }), [], true],
+    ["a thread gone from the shell", null, [], false],
+    [
+      "an archived thread",
+      makeThread({ id: ThreadId.make("a"), title: "A", archivedAt: NOW }),
+      [],
+      false,
+    ],
+    [
+      "a thread settled since",
+      makeThread({ id: ThreadId.make("a"), title: "A", settledOverride: "settled" }),
+      [],
+      false,
+    ],
+    [
+      "a settled thread with a message waiting to send",
+      makeThread({ id: ThreadId.make("a"), title: "A", settledOverride: "settled" }),
+      [`${environmentId}:a`],
+      true,
+    ],
+    [
+      "a thread snoozed since",
+      makeThread({ id: ThreadId.make("a"), title: "A", snoozedUntil: "2099-01-01T00:00:00.000Z" }),
+      [],
+      false,
+    ],
+    [
+      "a thread started since",
+      makeThread({ id: ThreadId.make("a"), title: "A", runtime: running }),
+      [],
+      false,
+    ],
+  ] as const)("keeps %s: %s", (_, shell, queuedKeys, expected) => {
+    expect(isStillQueued(shell, { now: NOW, queuedThreadKeys: new Set(queuedKeys) })).toBe(
+      expected,
+    );
   });
 });
 

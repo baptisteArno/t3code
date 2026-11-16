@@ -1036,17 +1036,40 @@ describe("next thread after sending", () => {
       "c",
       "a",
     ],
-  ] as const)("picks %s", (_, pinnedThreads, activeThreads, openedFrom, sentId, expected) => {
-    expect(
-      resolveNextThreadAfterSend({
-        pinnedThreads,
-        activeThreads,
-        openedFrom,
-        sentRef: scopeThreadRef(local, ThreadId.make(sentId)),
-        serverConfigs: new Map([[local, {}]]),
-      })?.threadId ?? null,
-    ).toBe(expected);
-  });
+    [
+      "past threads settled or snoozed with it",
+      [pinned("p")],
+      [thread(local, "a"), thread(local, "b")],
+      null,
+      "c",
+      "b",
+      ["p", "a"],
+    ],
+  ] as const)(
+    "picks %s",
+    (
+      _,
+      pinnedThreads,
+      activeThreads,
+      openedFrom,
+      sentId,
+      expected,
+      skipIds: readonly string[] = [],
+    ) => {
+      expect(
+        resolveNextThreadAfterSend({
+          pinnedThreads,
+          activeThreads,
+          openedFrom,
+          leavingRef: scopeThreadRef(local, ThreadId.make(sentId)),
+          skipKeys: new Set(
+            skipIds.map((id) => scopedThreadKey(scopeThreadRef(local, ThreadId.make(id)))),
+          ),
+          serverConfigs: new Map([[local, {}]]),
+        })?.threadId ?? null,
+      ).toBe(expected);
+    },
+  );
 
   describe("on the empty draft opened for an empty inbox", () => {
     const draft = thread(local, "draft");

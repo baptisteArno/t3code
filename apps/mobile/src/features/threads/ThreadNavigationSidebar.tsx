@@ -42,7 +42,7 @@ import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useThreadListV2 } from "./useThreadListV2";
 import { useSidebarRowThreadKey } from "./useSidebarRowThreadKey";
-import { useNextThreadAfterSendSource } from "./nextThreadAfterSend";
+import { useAdvancingParkActions, useNextThreadAfterSendSource } from "./nextThreadAfterSend";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
@@ -140,8 +140,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const {
     archiveThread,
     confirmDeleteThread,
-    settleThread,
-    snoozeThread,
+    settleThread: settleListedThread,
+    snoozeThread: snoozeListedThread,
     unsnoozeThread,
     unsettleThread,
     pinThread,
@@ -151,6 +151,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     renameThread,
     regenerateThreadTitle,
   } = useThreadListActions();
+  const { settleThread, snoozeThread } = useAdvancingParkActions({
+    settleThread: settleListedThread,
+    snoozeThread: snoozeListedThread,
+  });
   const pendingTasks = usePendingNewTasks();
   const launchingThreads = useLaunchingThreads(threads);
   const activeNewTask = useActiveNewTask();

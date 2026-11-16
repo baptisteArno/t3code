@@ -65,7 +65,10 @@ import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { useThreadListSearchMatches } from "../threads/useThreadListSearchMatches";
 import { useThreadListV2 } from "../threads/useThreadListV2";
 import { useSidebarRowThreadKey } from "../threads/useSidebarRowThreadKey";
-import { useNextThreadAfterSendSource } from "../threads/nextThreadAfterSend";
+import {
+  useAdvancingParkActions,
+  useNextThreadAfterSendSource,
+} from "../threads/nextThreadAfterSend";
 import { useThreadListNow } from "../threads/use-thread-list-now";
 import { useSearchScrollRestoration } from "../layout/workspace/useSearchScrollRestoration";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
@@ -366,8 +369,11 @@ export function HomeScreen(props: HomeScreenProps) {
       ),
     ),
   );
-  const handleSettleThread = props.onSettleThread;
-  const handleSnoozeThread = props.onSnoozeThread;
+  const { settleThread: handleSettleThread, snoozeThread: handleSnoozeThread } =
+    useAdvancingParkActions({
+      settleThread: props.onSettleThread,
+      snoozeThread: props.onSnoozeThread,
+    });
   const handleUnsnoozeThread = props.onUnsnoozeThread;
   const handlePinThread = props.onPinThread;
   const handleMoveThread = props.onMoveThread;

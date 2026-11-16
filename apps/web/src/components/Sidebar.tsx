@@ -130,6 +130,7 @@ import {
   useThreadActions,
 } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useOpenThreadAfterSend } from "../hooks/useAdvanceAfterSend";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
@@ -1622,13 +1623,39 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     navigateToThread(threadRef);
   };
 
+  const advanceAfterSend =
+    useClientSettings((s) => s.sidebarAdvanceAfterSend) && workingShelfEnabled;
+  const openThreadAfterSend = useOpenThreadAfterSend();
+  const nextThreadAfterPark = useStableCallback(
+    (parkedRef: ScopedThreadRef, coParkingKeys: ReadonlySet<string> | undefined) =>
+      resolveNextThreadAfterSend({
+        pinnedThreads,
+        activeThreads,
+        openedFrom: null,
+        leavingRef: parkedRef,
+        skipKeys: coParkingKeys,
+        serverConfigs,
+      }),
+  );
   // Snapshot navigation before partition mutation; background parks use a null plan.
   const planForwardNavigation = (
-    threadKey: string,
+    threadRef: ScopedThreadRef,
     coParkingKeys?: ReadonlySet<string>,
   ): (() => void) | null => {
+    const threadKey = scopedThreadKey(threadRef);
     if (readRouteThreadKey(router) !== threadKey) return null;
     const shell = threadByKeyRef.current.get(threadKey);
+    // The project filter can hide the open thread's row.
+    const parked = advanceAfterSend ? (shell ?? readThreadShell(threadRef)) : null;
+    if (parked) {
+      const projectRef = scopeProjectRef(parked.environmentId, parked.projectId);
+      // The queue is read once the park lands, not when its menu opened.
+      return () => {
+        const next = nextThreadAfterPark(threadRef, coParkingKeys);
+        if (next) void navigateToThread(next);
+        else void openThreadAfterSend(null, null, projectRef);
+      };
+    }
     const orderedKeys = orderedThreadKeysRef.current;
     const settledKeys = settledThreadKeysRef.current;
     const snoozedKeys = snoozedThreadKeysRef.current;
@@ -1655,7 +1682,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
-      const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
+      const navigateAfterSettle = planForwardNavigation(threadRef, opts.coSettlingKeys);
       const result = await settleThread(threadRef);
       settlingThreadKeysRef.current.delete(threadKey);
       if (result._tag === "Failure") {
@@ -1686,8 +1713,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
-  const advanceAfterSend =
-    useClientSettings((s) => s.sidebarAdvanceAfterSend) && workingShelfEnabled;
   const nextThreadAfterSend = useStableCallback((sentRef: ScopedThreadRef) => {
     // Settings and Usage cover the thread without unmounting its ChatView.
     if (readRouteThreadKey(router) !== scopedThreadKey(sentRef)) return undefined;
@@ -1697,7 +1722,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       pinnedThreads,
       activeThreads,
       openedFrom,
-      sentRef,
+      leavingRef: sentRef,
       serverConfigs,
     });
   });
@@ -2269,7 +2294,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       switch (plan.kind) {
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
-          const navigateAfterSettle = planForwardNavigation(activeKey);
+          const navigateAfterSettle = planForwardNavigation(threadRef);
           const settled = await run(settleThread(threadRef), gt("Failed to settle thread")).finally(
             () => settlingThreadKeysRef.current.delete(activeKey),
           );
@@ -2338,7 +2363,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return { status: "skipped" } as const;
     }
     snoozingThreadKeysRef.current.add(threadKey);
-    const navigateAfterSnooze = planForwardNavigation(threadKey, opts.coSnoozingKeys);
+    const navigateAfterSnooze = planForwardNavigation(threadRef, opts.coSnoozingKeys);
     const result = await snoozeThread(threadRef, preset.snoozedUntil);
     snoozingThreadKeysRef.current.delete(threadKey);
     if (result._tag === "Failure") {

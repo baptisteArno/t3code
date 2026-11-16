@@ -713,22 +713,47 @@ function sortSettledThreadsReusingLast(
   return lastSettledOutput;
 }
 
-/** The first queued thread other than the one just sent to; null when none is left. */
+/**
+ * The first queued thread other than the one being left that is still queued; null when none is
+ * left.
+ */
 export function resolveNextThreadAfterSend<
   Thread extends Pick<EnvironmentThreadShell, "environmentId" | "id">,
 >(input: {
   readonly nextThreadQueue: ReadonlyArray<Thread>;
-  readonly sentThreadKey: string;
+  readonly leavingThreadKey: string;
   readonly loadedEnvironmentIds: ReadonlySet<EnvironmentId>;
+  readonly isQueued: (thread: Thread) => boolean;
 }): Thread | null {
   return (
     input.nextThreadQueue.find(
       (thread) =>
-        `${thread.environmentId}:${thread.id}` !== input.sentThreadKey &&
+        `${thread.environmentId}:${thread.id}` !== input.leavingThreadKey &&
         // Without its server config, a thread's snooze and settle state is unknown.
-        input.loadedEnvironmentIds.has(thread.environmentId),
+        input.loadedEnvironmentIds.has(thread.environmentId) &&
+        input.isQueued(thread),
     ) ?? null
   );
+}
+
+/**
+ * Whether a thread still belongs in the next-thread queue by its current shell. A list covered by
+ * a thread screen stops rendering, so its queue can hold threads parked or started since.
+ */
+export function isStillQueued(
+  shell: EnvironmentThreadShell | null,
+  input: { readonly now: string; readonly queuedThreadKeys: ReadonlySet<string> },
+): boolean {
+  if (shell === null || shell.archivedAt !== null) return false;
+  if (effectiveSnoozed(shell, { now: input.now })) return false;
+  // The list keeps a settled thread with a message waiting to send among active threads.
+  if (
+    shell.settledOverride === "settled" &&
+    !input.queuedThreadKeys.has(`${shell.environmentId}:${shell.id}`)
+  ) {
+    return false;
+  }
+  return !isThreadWorking(shell);
 }
 
 export function buildThreadListV2Items(input: {

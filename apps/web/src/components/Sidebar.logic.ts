@@ -79,27 +79,33 @@ type PinnedQueueThread = QueueThread & Parameters<typeof isThreadWorking>[0];
 
 /**
  * The thread a sent draft was opened from, else the first pinned thread not working, else the top
- * active thread, other than the one just sent to; null when none is left.
+ * active thread, other than `leavingRef` and the threads in `skipKeys`; null when none is left.
  */
 export function resolveNextThreadAfterSend(input: {
   readonly pinnedThreads: readonly PinnedQueueThread[];
   readonly activeThreads: readonly QueueThread[];
   readonly openedFrom: Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id"> | null;
-  readonly sentRef: ScopedThreadRef;
+  readonly leavingRef: ScopedThreadRef;
+  readonly skipKeys?: ReadonlySet<string> | undefined;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, unknown>;
 }): ScopedThreadRef | null {
   if (input.openedFrom && input.openedFrom.archivedAt === null) {
     return scopeThreadRef(input.openedFrom.environmentId, input.openedFrom.id);
   }
-  const sentKey = scopedThreadKey(input.sentRef);
+  const leavingKey = scopedThreadKey(input.leavingRef);
   const queue = [
     ...input.pinnedThreads.filter((thread) => !isThreadWorking(thread)),
     ...input.activeThreads,
   ];
   for (const thread of queue) {
     const ref = scopeThreadRef(thread.environmentId, thread.id);
+    const key = scopedThreadKey(ref);
     // Without its server config, a thread's snooze and settle state is unknown.
-    if (scopedThreadKey(ref) !== sentKey && input.serverConfigs.has(thread.environmentId)) {
+    if (
+      key !== leavingKey &&
+      !input.skipKeys?.has(key) &&
+      input.serverConfigs.has(thread.environmentId)
+    ) {
       return ref;
     }
   }
@@ -139,7 +145,7 @@ export function resolveInboxWait(input: {
         pinnedThreads: input.pinnedThreads,
         activeThreads: input.activeThreads,
         openedFrom: null,
-        sentRef: sentRef ?? wait.draftRef,
+        leavingRef: sentRef ?? wait.draftRef,
         serverConfigs: input.serverConfigs,
       });
   if (open) return { open, wait: null };
