@@ -7,6 +7,7 @@ import {
   type EditorId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { isMacPlatform } from "@t3tools/shared/keybindings";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -210,7 +211,16 @@ it.each(["[Docs](https://example.com/docs)", "[Readme](docs/readme.md)"])(
     using _setup = setup();
     await using screen = await renderMarkdown(text);
     screen.anchor().focus();
-    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    // macOS Chromium has no Shift+F10 menu, so send the buttonless event a menu key produces.
+    if (isMacPlatform(navigator.platform)) {
+      await act(async () => {
+        screen
+          .anchor()
+          .dispatchEvent(
+            new PointerEvent("contextmenu", { bubbles: true, cancelable: true, button: -1 }),
+          );
+      });
+    } else await userEvent.keyboard("{Shift>}{F10}{/Shift}");
     await vi.waitFor(() => expect(state.choose.mock.lastCall?.[2]).toBe("keyboard"));
     await userEvent.click(screen.anchor(), { button: "right" });
     await vi.waitFor(() => expect(state.choose.mock.lastCall?.[2]).toBe("mouse"));
