@@ -728,6 +728,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const loadEarlier = Effect.fn("EnvironmentThreadState.loadEarlier")(function* (
     throughEntryId?: string,
     workAnchorId?: string,
+    throughPrompt = false,
   ): Effect.fn.Return<ThreadHistoryController.ThreadHistoryLoadEarlierResult> {
     const workCursor = (latest: EnvironmentThreadState) =>
       Option.getOrNull(latest.data)?.visibleTurnItems.find(
@@ -816,7 +817,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
               ? page.nextCursor !== null
               : throughEntryId === undefined &&
                 page.hasMoreHistory &&
-                !page.items.some(({ item }) => startsTurn(item)));
+                !page.items.some(
+                  ({ item }) =>
+                    startsTurn(item) && (!throughPrompt || item.type === "user_message"),
+                ));
           if (keepPaging && (page.nextCursor === null || page.nextCursor === requestCursor))
             return yield* failLoad(
               workAnchorId === undefined
@@ -949,8 +953,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   if (Option.isSome(historyController)) {
     const scope = yield* Scope.Scope;
     const registration = yield* historyController.value.register(environmentId, threadId, {
-      loadEarlier: (throughEntryId, workAnchorId) =>
-        loadEarlier(throughEntryId, workAnchorId).pipe(
+      loadEarlier: (throughEntryId, workAnchorId, throughPrompt) =>
+        loadEarlier(throughEntryId, workAnchorId, throughPrompt).pipe(
           Effect.forkIn(scope),
           Effect.flatMap(Fiber.join),
         ),
