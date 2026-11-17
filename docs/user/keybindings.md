@@ -8,18 +8,19 @@ To free a default shortcut, choose **Unassign** from its row menu (**Reset to de
 
 ## Common composer shortcuts
 
-| Action                      | Default           | Notes                                                              |
-| --------------------------- | ----------------- | ------------------------------------------------------------------ |
-| Start / finish dictation    | `mod+shift+d`     | `Esc` discards. See [Voice input](./voice-input.md).               |
-| Opposite queue/steer action | `mod+Enter`       | Uses the non-default follow-up behavior while a turn runs.         |
-| Start thread in background  | `mod+Alt+Enter`   | Also `mod+Enter` in a new thread; opens a fresh draft immediately. |
-| Send first queued message   | `mod+Shift+Enter` | Steers if running, or starts a turn if stopped.                    |
-| Pick model                  | `mod+shift+m`     | `mod+shift+up/down` switches providers inside the picker.          |
-| Pick host / environment     | `mod+shift+h`     | Bind **Composer: Cycle Host** to step without a menu.              |
-| Pick effort                 | `mod+shift+e`     | Bind **Increase/Decrease Effort** to step without a menu.          |
-| Pick permissions            | `mod+shift+a`     |                                                                    |
-| Pick workspace mode         | `mod+shift+x`     | `mod+shift+l` reuses the previous worktree directly.               |
-| Pick Git branch             | `mod+shift+g`     |                                                                    |
+| Action                      | Default           | Notes                                                                                                                   |
+| --------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Start / finish dictation    | `mod+shift+d`     | `Esc` discards. See [Voice input](./voice-input.md).                                                                    |
+| Opposite queue/steer action | `mod+Enter`       | Uses the non-default follow-up behavior while a turn runs.                                                              |
+| Start thread in background  | `mod+Alt+Enter`   | Also `mod+Enter` in a new thread; opens a fresh draft immediately.                                                      |
+| Send and stay on thread     | `mod+Enter`       | Sends, queues, or steers without **Next thread after sending**; add `Shift` when the send shortcut requires a modifier. |
+| Send first queued message   | `mod+Shift+Enter` | Steers if running, or starts a turn if stopped.                                                                         |
+| Pick model                  | `mod+shift+m`     | `mod+shift+up/down` switches providers inside the picker.                                                               |
+| Pick host / environment     | `mod+shift+h`     | Bind **Composer: Cycle Host** to step without a menu.                                                                   |
+| Pick effort                 | `mod+shift+e`     | Bind **Increase/Decrease Effort** to step without a menu.                                                               |
+| Pick permissions            | `mod+shift+a`     |                                                                                                                         |
+| Pick workspace mode         | `mod+shift+x`     | `mod+shift+l` reuses the previous worktree directly.                                                                    |
+| Pick Git branch             | `mod+shift+g`     |                                                                                                                         |
 
 Configure whether `Enter` sends or requires `mod+Enter` in **Settings → Chat → Send shortcut** (`Shift+Enter` always inserts a newline).
 
