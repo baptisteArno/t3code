@@ -97,6 +97,11 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+enter", command: "composer.sendAlternate", when: "composerFocus && turnRunning" },
   {
     key: "mod+enter",
+    command: "composer.sendAndStay",
+    when: "composerFocus && !turnRunning && !draftThreadRoute",
+  },
+  {
+    key: "mod+enter",
     command: "composer.sendBackground",
     when: "composerFocus && draftThreadRoute",
   },

@@ -131,7 +131,8 @@ export function shortcutForContext(
   if (
     context.composerRequiresModifier &&
     (binding.command === "composer.sendAlternate" ||
-      binding.command === "composer.sendBackground") &&
+      binding.command === "composer.sendBackground" ||
+      binding.command === "composer.sendAndStay") &&
     shortcut.key === "enter" &&
     shortcut.modKey &&
     !shortcut.metaKey &&
