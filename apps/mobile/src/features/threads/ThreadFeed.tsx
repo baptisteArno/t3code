@@ -268,6 +268,7 @@ import {
   createPendingTurnAppender,
   createThreadFeedGrouping,
   isCompactionCommandFeedEntry,
+  latestPromptRowId,
   type GroupedThreadFeedRow,
   type ThreadFeedRow,
 } from "./pending-thread-feed";
@@ -362,6 +363,8 @@ export interface ThreadFeedHistoryControls {
   readonly loading: boolean;
   readonly error: string | null;
   readonly onLoadEarlier: () => void;
+  /** Set when the thread has a prompt; loads earlier history through it. */
+  readonly onLoadThroughPrompt?: () => Promise<unknown>;
   /** Loads earlier history down to the entry, in one request. */
   readonly onLoadThrough: (entryId: string) => void;
 }
@@ -3988,6 +3991,75 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     workflowOpeningMessageId: workflowOpening?.messageId,
     setupAnchorIndex: props.worktreeSetup || props.preparingWorktree ? setupAnchorIndex : undefined,
   });
+  // The feed remounts per thread; LegendList takes its initial scroll from the first rows. It opens
+  // on the latest prompt unless a jump or a just-sent turn owns the position, decided once. A prompt
+  // a long turn left out is awaited at the top, where the history control says it is loading.
+  const [openingRowId, setOpeningRowId] = useState<string | null | undefined>(undefined);
+  const [promptLoaded, setPromptLoaded] = useState(false);
+  const [waitedForPrompt, setWaitedForPrompt] = useState(false);
+  const [readerScrolledWhileWaiting, setReaderScrolledWhileWaiting] = useState(false);
+  // A list that mounted before its rows arrived follows its empty end; its initial scroll reaches
+  // the prompt, then the next row measurement pulls it back down. Only an explicit scroll stops that.
+  const [mountedWithoutRows] = useState(groupedFeed.length === 0);
+  const promptLoadInFlightRef = useRef(false);
+  const history = props.historyControls;
+  let openingRow = openingRowId;
+  let waitsForPrompt = false;
+  if (openingRow === undefined && groupedFeed.length > 0) {
+    const positionedElsewhere = !!jumpToMessageId || !!props.anchorMessageId;
+    const prompt = positionedElsewhere ? null : latestPromptRowId(groupedFeed);
+    waitsForPrompt =
+      !positionedElsewhere &&
+      prompt === null &&
+      history?.onLoadThroughPrompt !== undefined &&
+      history.hasMoreHistory &&
+      history.error === null &&
+      // The load's promise can settle before the thread state carries its page.
+      (!promptLoaded || history.loading);
+    if (!waitsForPrompt) {
+      openingRow = prompt;
+      setOpeningRowId(prompt);
+    } else if (!waitedForPrompt) {
+      setWaitedForPrompt(true);
+    }
+  }
+  const openingIndex = openingRow ? groupedFeed.findIndex((entry) => entry.id === openingRow) : -1;
+  const promptLoadDue = waitsForPrompt && history?.loading === false;
+  const loadThroughPrompt = useEffectEvent(() => {
+    const load = history?.onLoadThroughPrompt;
+    if (!load || promptLoadInFlightRef.current) return;
+    promptLoadInFlightRef.current = true;
+    void load().finally(() => {
+      promptLoadInFlightRef.current = false;
+      setPromptLoaded(true);
+    });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- requests earlier history through the prompt while the opening waits for it
+  useEffect(() => {
+    if (promptLoadDue) loadThroughPrompt();
+  }, [promptLoadDue]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- shows the loading history control when the list opened before the wait began
+  useEffect(() => {
+    if (waitedForPrompt) void listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [listRef, waitedForPrompt]);
+  const lateOpeningRow =
+    waitedForPrompt || (mountedWithoutRows && openingRowId) ? openingRowId : undefined;
+  const landLateOpening = useEffectEvent(() => {
+    const list = listRef.current;
+    if (!list || readerScrolledWhileWaiting) return;
+    void (openingIndex < 0
+      ? list.scrollToEnd({ animated: false })
+      : list.scrollToIndex({
+          index: openingIndex,
+          viewPosition: 0,
+          viewOffset: (usesNativeAutomaticInsets ? 0 : topContentInset) + CHAT_LIST_ANCHOR_OFFSET,
+          animated: false,
+        }));
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the native list to where a late opening settled; an explicit scroll also stops end following
+  useEffect(() => {
+    if (lateOpeningRow !== undefined) landLateOpening();
+  }, [lateOpeningRow]);
   const { contentInsetEndAdjustment } = props;
   const attachList = (list: LegendListRef | null) => {
     listRef.current = list;
@@ -4436,7 +4508,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
             freeze={props.freeze}
             maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
-            maintainVisibleContentPosition
+            // Pages loading above the top while it waits must not push the history control out of view.
+            maintainVisibleContentPosition={!waitsForPrompt || readerScrolledWhileWaiting}
+            {...(waitsForPrompt
+              ? { onScrollBeginDrag: () => setReaderScrolledWhileWaiting(true) }
+              : {})}
             data={groupedFeed}
             extraData={listAppearanceData}
             renderItem={renderItem}
@@ -4474,7 +4550,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             scrollToOverflowEnabled
             estimatedItemSize={180}
             alignItemsAtEnd
-            initialScrollAtEnd
+            {...(waitedForPrompt
+              ? {}
+              : openingIndex >= 0
+                ? {
+                    initialScrollIndex: {
+                      index: openingIndex,
+                      viewPosition: 0,
+                      // Index targets already sit below a native top inset; a header spacer is content.
+                      viewOffset:
+                        (usesNativeAutomaticInsets ? 0 : topContentInset) + CHAT_LIST_ANCHOR_OFFSET,
+                    },
+                  }
+                : { initialScrollAtEnd: true })}
             onReady={() => {
               setLoadedListKey(feedThreadKey);
               reportMetrics(true);
