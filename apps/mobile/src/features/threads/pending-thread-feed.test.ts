@@ -14,6 +14,7 @@ import {
   createPendingTurnAppender,
   createThreadFeedGrouping,
   isCompactionCommandFeedEntry,
+  latestPromptRowId,
   selectPendingAcknowledgedMessages,
 } from "./pending-thread-feed";
 
@@ -91,6 +92,16 @@ describe("pending timeline messages", () => {
       group([feed[0]!, { ...compact, pendingMessage: undefined }], {})[0]?.userMessageGrouping
         .groupedWithNext,
     ).toBe(false);
+  });
+
+  it("opens on the latest prompt rather than a later compaction", () => {
+    const [prompt, compact] = appendPendingThreadMessages(
+      [],
+      [],
+      [pending("prompt"), { ...pending("compact"), text: "/compact" }],
+    ).map((entry) => ({ ...entry, pendingMessage: undefined }));
+    expect(latestPromptRowId([prompt!, compact!])).toBe(prompt!.id);
+    expect(latestPromptRowId([compact!])).toBeNull();
   });
 
   it.each([false, true])(
