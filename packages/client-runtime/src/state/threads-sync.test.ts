@@ -300,8 +300,14 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     threadState,
     loadWork: (anchorId: string) =>
       historyController.loadEarlier(TARGET.environmentId, THREAD_ID, undefined, anchorId),
-    loadEarlier: (throughEntryId?: string) =>
-      historyController.loadEarlier(TARGET.environmentId, THREAD_ID, throughEntryId),
+    loadEarlier: (throughEntryId?: string, throughPrompt?: boolean) =>
+      historyController.loadEarlier(
+        TARGET.environmentId,
+        THREAD_ID,
+        throughEntryId,
+        undefined,
+        throughPrompt,
+      ),
     reconcilePendingWork: historyController.reconcilePendingWork(TARGET.environmentId, THREAD_ID),
     inputs,
     observed,
@@ -1164,20 +1170,24 @@ describe("EnvironmentThreads", () => {
         id,
         ordinal,
       );
+    const wake = boundary({
+      type: "notification",
+      source: { kind: "delegated_task", taskIds: [] },
+      outcome: "completed",
+      summary: "Checks finished",
+    });
     it.effect.each([
-      ["an agent-started turn", message("turn_start", "agent"), ["3"]],
+      ["an agent-started turn", message("turn_start", "agent"), false, ["3"]],
+      ["a notification", wake, false, ["3"]],
+      ["a user message past a notification, through the prompt", wake, true, ["3", "2", "1"]],
       [
-        "a notification",
-        boundary({
-          type: "notification",
-          source: { kind: "delegated_task", taskIds: [] },
-          outcome: "completed",
-          summary: "Checks finished",
-        }),
-        ["3"],
+        "a user message past an automatic /compact, through the prompt",
+        { ...message("turn_start", "agent"), text: "/compact" },
+        true,
+        ["3", "2", "1"],
       ],
-      ["a steer, paging on to its turn", message("steer", "user"), ["3", "2", "1"]],
-    ] as const)("stops paging earlier history at %s", ([, item, expected]) =>
+      ["a steer, paging on to its turn", message("steer", "user"), false, ["3", "2", "1"]],
+    ] as const)("stops paging earlier history at %s", ([, item, throughPrompt, expected]) =>
       Effect.gen(function* () {
         const pages: Record<string, ReadonlyArray<unknown>> = {
           "3": [item],
@@ -1197,7 +1207,7 @@ describe("EnvironmentThreads", () => {
             );
           }),
         });
-        expect(yield* harness.loadEarlier()).toEqual({ _tag: "loaded" });
+        expect(yield* harness.loadEarlier(undefined, throughPrompt)).toEqual({ _tag: "loaded" });
         expect(requests).toEqual(expected);
       }),
     );
