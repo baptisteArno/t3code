@@ -1,6 +1,7 @@
 import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
 import {
+  isCompactionCommandMessage,
   isOrchestrationV2WorkActive,
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId as EnvironmentIdType,
@@ -114,6 +115,15 @@ function startsTurn(item: OrchestrationV2TurnItem): boolean {
     (item.type === "user_message" &&
       item.inputIntent !== "steer" &&
       item.inputIntent !== "promoted_queued_to_steer")
+  );
+}
+
+// The prompt a thread opens on; an automatic `/compact` is a user message too, but never one.
+function isPrompt(item: OrchestrationV2TurnItem): boolean {
+  return (
+    item.type === "user_message" &&
+    startsTurn(item) &&
+    !isCompactionCommandMessage({ role: "user", ...item })
   );
 }
 
@@ -784,6 +794,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const loadEarlier = Effect.fn("EnvironmentThreadState.loadEarlier")(function* (
     throughEntryId?: string,
     workAnchorId?: string,
+    throughPrompt = false,
   ): Effect.fn.Return<ThreadHistoryController.ThreadHistoryLoadEarlierResult> {
     const workCursor = (latest: EnvironmentThreadState) =>
       Option.getOrNull(latest.data)?.visibleTurnItems.find(
@@ -872,7 +883,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
               ? page.nextCursor !== null
               : throughEntryId === undefined &&
                 page.hasMoreHistory &&
-                !page.items.some(({ item }) => startsTurn(item)));
+                !page.items.some(({ item }) =>
+                  throughPrompt ? isPrompt(item) : startsTurn(item),
+                ));
           if (keepPaging && (page.nextCursor === null || page.nextCursor === requestCursor))
             return yield* failLoad(
               workAnchorId === undefined
@@ -1005,8 +1018,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   if (Option.isSome(historyController)) {
     const scope = yield* Scope.Scope;
     const registration = yield* historyController.value.register(environmentId, threadId, {
-      loadEarlier: (throughEntryId, workAnchorId) =>
-        loadEarlier(throughEntryId, workAnchorId).pipe(
+      loadEarlier: (throughEntryId, workAnchorId, throughPrompt) =>
+        loadEarlier(throughEntryId, workAnchorId, throughPrompt).pipe(
           Effect.forkIn(scope),
           Effect.flatMap(Fiber.join),
         ),
