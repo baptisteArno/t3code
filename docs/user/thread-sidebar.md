@@ -168,7 +168,9 @@ the first pinned thread to stop working or thread to come back to the active lis
 place. Each device keeps its own choice. On web and desktop, a new thread you start from another
 thread is the exception:
 sending it takes you back to the thread you left. Sending in the background still keeps you where
-you are.
+you are. To stay on the thread for one message, send it with `Cmd+Enter` on macOS or `Ctrl+Enter` on
+Windows and Linux, adding `Shift` when your send shortcut already uses it. While the thread runs,
+that key queues or steers as usual and keeps you there too.
 
 ### Group threads by project (beta)
 
