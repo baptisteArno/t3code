@@ -135,7 +135,11 @@ import {
   McpAppTimelineRow,
 } from "./TimelineAssistantRows";
 import { V2EventTimelineRow } from "./TimelineV2EventRow";
-import { startTimelinePositionRestore } from "./useTimelinePositionRestore";
+import {
+  resolveTimelineOpening,
+  startTimelinePositionRestore,
+  startTimelinePromptWait,
+} from "./useTimelinePositionRestore";
 import {
   attachTimelineViewport,
   nextListOpening,
@@ -230,6 +234,8 @@ export interface MessagesTimelineHistoryControls {
   readonly loading: boolean;
   readonly error: string | null;
   readonly onLoadEarlier: (throughEntryId?: string) => void;
+  /** Set when the thread has a prompt; loads earlier history through it. */
+  readonly onLoadThroughPrompt?: () => Promise<unknown>;
 }
 
 interface MessagesTimelineProps {
@@ -462,12 +468,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [expandedAttemptIds, setExpandedAttemptIds] = useState<ReadonlySet<RunAttemptId>>(
     () => listState.rememberedPosition?.disclosures?.attempts ?? new Set(),
   );
-  // A list that opens on a thread with find open takes the opening step below,
-  // so the restore runs and releases follow once for find.
-  const [positionedThreadKey, setPositionedThreadKey] = useState<string | null>(() =>
-    listState.rememberedPosition?.atEnd === false || findOpen ? null : listIdentityKey,
-  );
+  // Every opening takes the step below: it lands on the latest prompt, a
+  // remembered row or the end, and releases follow once for find.
+  const [positionedThreadKey, setPositionedThreadKey] = useState<string | null>(null);
   const restoringThreadPosition = positionedThreadKey !== listIdentityKey;
+  // The opening whose load through its prompt finished; a long latest turn can leave the prompt out of the window.
+  const [promptLoadedFor, setPromptLoadedFor] = useState<string | null>(null);
+  const promptLoadInFlightRef = useRef<string | null>(null);
+  // The opening that scrolled to the top to wait for its prompt, so its end is no longer in view.
+  const promptWaitRef = useRef<string | null>(null);
+  // Hands that wait over to the reader moving the timeline, heard from whichever viewport the
+  // list attaches, since the list can reattach while it waits.
+  const promptWaitYieldRef = useRef<(() => void) | null>(null);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
   const [playingAudioRows, setPlayingAudioRows] = useState<ReadonlyMap<HTMLAudioElement, string>>(
@@ -490,6 +502,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       findOpenAtOpening: findOpen,
     });
     setPositionedThreadKey(null);
+    setPromptLoadedFor(null);
     setSettlingListIdentity(listIdentityKey);
     // A viewer pinned in another thread must not keep live follow off here,
     // nor when that thread comes back.
@@ -799,10 +812,28 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const runs = useStableHandoffRuns(runsProp);
   const minimapItems = deriveTimelineMinimapItems(rows);
   const minimapRowIndices = minimapItems.map((item) => item.rowIndex);
+  const newTurnAnchored = anchorMessageId !== null;
+  const { findOpenAtOpening } = identityChanged ? { findOpenAtOpening: findOpen } : listState;
+  const canLoadEarlierPrompt =
+    historyControls?.onLoadThroughPrompt !== undefined &&
+    historyControls.hasMoreHistory &&
+    historyControls.error === null &&
+    citationRequest === null &&
+    !findOpenAtOpening &&
+    // The load's promise can settle before the thread state carries its page.
+    (promptLoadedFor !== listIdentityKey || historyControls.loading);
+  const opening = restoringThreadPosition
+    ? resolveTimelineOpening(rememberedPosition, rows, newTurnAnchored, canLoadEarlierPrompt)
+    : null;
+  const loadsEarlierPrompt = opening?.kind === "earlierPrompt";
+  const openingRowId =
+    opening?.kind === "remembered"
+      ? opening.position.rowId
+      : opening?.kind === "latestPrompt"
+        ? opening.rowId
+        : null;
   const restoreRowIndex =
-    restoringThreadPosition && rememberedPosition?.atEnd === false
-      ? rows.findIndex((row) => row.id === rememberedPosition.rowId)
-      : -1;
+    openingRowId === null ? -1 : rows.findIndex((row) => row.id === openingRowId);
   const restoringAlwaysRender =
     restoringThreadPosition && restoreRowIndex >= 0 ? { indices: [restoreRowIndex] } : undefined;
   const showsEmptyState =
@@ -819,13 +850,30 @@ const ConversationTimeline = memo(function ConversationTimeline({
   if (nextOpening !== listOpening) setListOpening(nextOpening);
   const listOpenedOn = nextOpening.mounted ? nextOpening.identity : null;
   const viewportRef = useRef<TimelineViewport | null>(null);
+  // Until the reader moves, a thread opened on its latest prompt is remembered
+  // as at its end, so it reopens on whatever prompt is latest by then.
+  const openedOnLatestPromptRef = useRef<string | null>(null);
   const navigateTimeline = () => viewportRef.current?.navigate({ releasesFollow: true });
-  const restoreReady = restoringThreadPosition && rows.length > 0;
+  const restoreReady = restoringThreadPosition && rows.length > 0 && !loadsEarlierPrompt;
+  const promptLoadDue = loadsEarlierPrompt && historyControls?.loading === false;
+  const loadThroughPrompt = useEffectEvent(() => {
+    const identity = listIdentityKey;
+    const load = historyControls?.onLoadThroughPrompt;
+    if (!load || promptLoadInFlightRef.current === identity) return;
+    promptLoadInFlightRef.current = identity;
+    void load().finally(() => {
+      if (promptLoadInFlightRef.current === identity) promptLoadInFlightRef.current = null;
+      setPromptLoadedFor(identity);
+    });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- requests earlier history through the prompt while the opening waits for it
+  useEffect(() => {
+    if (promptLoadDue) loadThroughPrompt();
+  }, [promptLoadDue]);
   // Z: syncs LegendList's scroll position with which thread it shows. The list
   // is not keyed per thread and reports no "new data" event, and the restore
   // must land before paint, after LegendList's own layout effects applied the
   // new data. A citation request that arrives mid-restore takes over.
-  const { findOpenAtOpening } = identityChanged ? { findOpenAtOpening: findOpen } : listState;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores LegendList's scroll position for the shown thread before paint, after the list's own layout
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -835,11 +883,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
       list,
       viewport,
       listIdentityKey,
-      listOpenedOn,
+      listOpenedOn: promptWaitRef.current === listIdentityKey ? null : listOpenedOn,
       rememberedPosition,
+      newTurnAnchored,
       citationPending: citationRequest !== null,
       releaseForFind: findOpenAtOpening,
-      onPositioned: setPositionedThreadKey,
+      onPositioned: (identity, onLatestPrompt) => {
+        openedOnLatestPromptRef.current = onLatestPrompt ? identity : null;
+        setPositionedThreadKey(identity);
+        // Scroll events during the restore are ignored, so none may report where it landed.
+        const isAtEnd = resolveTimelineIsAtEnd(list.getState());
+        if (isAtEnd !== undefined && citationRequest === null) onIsAtEndChange(isAtEnd);
+      },
     });
   }, [
     citationRequest,
@@ -847,10 +902,35 @@ const ConversationTimeline = memo(function ConversationTimeline({
     listIdentityKey,
     listOpenedOn,
     listRef,
+    newTurnAnchored,
+    onIsAtEndChange,
     rememberedPosition,
     restoreReady,
     viewportRef,
   ]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds LegendList at its top, on the loading history control, while the opening waits for its prompt
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const viewport = viewportRef.current;
+    if (!loadsEarlierPrompt || !list || !viewport) return;
+    promptWaitRef.current = listIdentityKey;
+    const stop = startTimelinePromptWait({ list, viewport });
+    promptWaitYieldRef.current = () => {
+      promptWaitYieldRef.current = null;
+      stop();
+      openedOnLatestPromptRef.current = null;
+      setPositionedThreadKey(listIdentityKey);
+      const isAtEnd = resolveTimelineIsAtEnd(list.getState());
+      if (isAtEnd !== undefined) onIsAtEndChange(isAtEnd);
+    };
+    // Its scroll to the top is ignored like the restore's, so follow re-arms when the opening lands at the end.
+    onIsAtEndChange(false);
+    return () => {
+      promptWaitYieldRef.current = null;
+      stop();
+    };
+  }, [listIdentityKey, listRef, loadsEarlierPrompt, onIsAtEndChange, viewportRef]);
 
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
@@ -1043,7 +1123,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
           },
         };
         lastRememberedRef.current = { data: rows, threadKey: listIdentityKey, position: measured };
-        rememberTimelinePosition(listIdentityKey, measured, followingEnd);
+        rememberTimelinePosition(
+          listIdentityKey,
+          measured,
+          followingEnd || openedOnLatestPromptRef.current === listIdentityKey,
+        );
       }
     }
     return isAtEnd;
@@ -1303,10 +1387,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
     const stopPreservingReadingPosition = scrollNode
       ? preserveReadingPosition(scrollNode, shouldPreserveReadingPosition)
       : undefined;
+    // Ahead of follow's listener, whose release rewrites the remembered position.
+    const stopOpeningHold = viewport?.subscribe(() => {
+      openedOnLatestPromptRef.current = null;
+    });
     const detachViewport = viewport ? onViewportAttach?.(viewport) : undefined;
     const stopRememberingRelease = viewport?.onFollowReleased(rememberReleasedPosition);
     const stopDisclosureReveal = viewport?.subscribe(() => {
       disclosureRevealRef.current = null;
+    });
+    // A press in the text is not a move; one on the scrollbar is.
+    const stopPromptWaitYield = viewport?.subscribe((navigation) => {
+      if (navigation.source !== "pointer" || navigation.onScrollbar) promptWaitYieldRef.current?.();
     });
     let contentSizeFrame: number | null = null;
     // LegendList lays rows out from layout effects; the next frame sees them settled.
@@ -1334,6 +1426,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
       stopPreservingReadingPosition?.();
       stopRememberingRelease?.();
       stopDisclosureReveal?.();
+      stopPromptWaitYield?.();
+      stopOpeningHold?.();
       if (contentSizeFrame !== null) cancelAnimationFrame(contentSizeFrame);
       if (disclosureRevealFrameRef.current !== null) {
         cancelAnimationFrame(disclosureRevealFrameRef.current);
@@ -1483,6 +1577,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
           <TooltipScrollDismissArea
             ref={attachTimelineViewportElement}
             className="relative h-full min-h-0"
+            // Busy while it scrolls a newly shown thread to its opening.
+            aria-busy={restoringThreadPosition}
             data-assistant-citation-viewport="true"
           >
             {onCiteAssistantText && citationThreadRef ? (

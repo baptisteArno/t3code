@@ -605,6 +605,15 @@ export default function ChatView(props: ChatViewProps) {
           },
         });
       },
+      ...(serverThread?.latestUserMessageAt == null
+        ? {}
+        : {
+            onLoadThroughPrompt: () =>
+              loadEarlierThreadHistory({
+                environmentId: routeThreadDetailRef.environmentId,
+                input: { threadId: routeThreadDetailRef.threadId, throughPrompt: true },
+              }),
+          }),
     };
   })() as MessagesTimelineHistoryControls | undefined;
   const committedServerMessageIds = deriveCommittedServerUserMessageIds(serverVisibleTurnItems);
