@@ -455,6 +455,15 @@ function ThreadRouteContent(
           input: { threadId: selectedThread.id },
         });
       },
+      ...(selectedThread.latestUserMessageAt === null
+        ? {}
+        : {
+            onLoadThroughPrompt: () =>
+              loadEarlierHistory({
+                environmentId: selectedThread.environmentId,
+                input: { threadId: selectedThread.id, throughPrompt: true },
+              }),
+          }),
       onLoadThrough: (throughEntryId: string) => {
         void loadEarlierHistory({
           environmentId: selectedThread.environmentId,
