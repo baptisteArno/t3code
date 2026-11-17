@@ -218,6 +218,35 @@ function renderTimeline(entries: ReadonlyArray<Entry>, props: Partial<TimelinePr
   );
 }
 
+/** A prompt and a reply taller than the viewport. */
+function longTurn(prefix: string, more = ""): Entry[] {
+  return [
+    message(`${prefix} prompt`, {}, `${prefix}-prompt`),
+    message(
+      `${prefix} reply\n\n${"line\n\n".repeat(80)}${more}`,
+      { role: "assistant" },
+      `${prefix}-reply`,
+    ),
+  ];
+}
+
+/** Waits until the timeline has scrolled the thread to its opening, which a jump must not race. */
+async function expectOpened(container: HTMLElement) {
+  await vi.waitFor(() =>
+    expect(container.querySelector("[data-assistant-citation-viewport]")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    ),
+  );
+}
+
+/** How far a turn's prompt sits below the top of the viewport, if rendered. */
+function promptOffset(container: HTMLElement, viewport: HTMLElement, prefix: string) {
+  const row = container.querySelector(`[data-timeline-row-id="entry-${prefix}-prompt"]`);
+  if (!row) return undefined;
+  return Math.round(row.getBoundingClientRect().top - viewport.getBoundingClientRect().top);
+}
+
 async function click(element: HTMLElement) {
   await act(async () => element.click());
 }
@@ -353,8 +382,9 @@ describe("MessagesTimeline work rows", () => {
     container.style.cssText =
       "height: min(600px, 100vh); width: 900px; display: flex; flex-direction: column;";
     const entries = [
+      // No prompt to open on, so the thread opens at its live end.
       ...Array.from({ length: 12 }, (_, index) =>
-        message(`Earlier context ${index}`, {}, `context-${index}`),
+        message(`Earlier context ${index}`, { role: "assistant" }, `context-${index}`),
       ),
       message("Progress details\n\n".repeat(50), { role: "assistant", runId }, "progress"),
       message("Done", { role: "assistant", runId }, "final"),
@@ -561,6 +591,7 @@ describe("MessagesTimeline messages", () => {
 
     await vi.waitFor(() => expect(screen.text()).toContain("Turn 118:"));
     expect(screen.text()).not.toContain("Turn 60:");
+    await expectOpened(screen.container);
     // Wrapping follows DOM order, so the ends must also sit first and last.
     await vi.waitFor(() => {
       expect(headings()[0]).toBe(headingFor("First turn"));
@@ -711,6 +742,80 @@ describe("MessagesTimeline messages", () => {
     });
   });
 
+  it("opens a thread on its latest prompt and lets a running reply stream below it", async () => {
+    setup();
+    const navigations: TimelineNavigation[] = [];
+    const atEnd: boolean[] = [];
+    const base = {
+      ...baseProps(),
+      isWorking: true,
+      onIsAtEndChange: (isAtEnd: boolean) => atEnd.push(isAtEnd),
+      onViewportAttach: (viewport: Parameters<NonNullable<TimelineProps["onViewportAttach"]>>[0]) =>
+        viewport.subscribe((navigation) => navigations.push(navigation)),
+    };
+    const entries = [...longTurn("earlier"), ...longTurn("latest")];
+    await using screen = await renderElement(
+      <MessagesTimeline {...base} timelineEntries={entries} />,
+    );
+    const viewport = base.listRef.current!.getScrollableNode()!;
+    await vi.waitFor(() => expect(promptOffset(screen.container, viewport, "latest")).toBe(16));
+    // Follow lets go, so the live end does not pull the prompt away.
+    expect(navigations).toEqual([{ source: "command", releasesFollow: true }]);
+    await expectOpened(screen.container);
+    expect(atEnd.at(-1)).toBe(false);
+
+    await screen.rerender(
+      <MessagesTimeline
+        {...base}
+        liveFollowEnabled={false}
+        timelineEntries={[
+          ...entries,
+          message("More output\n\n".repeat(60), { role: "assistant" }, "latest-more"),
+        ]}
+      />,
+    );
+    await vi.waitFor(() => expect(screen.text()).toContain("More output"));
+    expect(promptOffset(screen.container, viewport, "latest")).toBe(16);
+  });
+
+  it("reopens on the newest prompt when the reader left the thread where it opened", async () => {
+    setup();
+    const base = baseProps();
+    const thread = base.routeThreadKey;
+    const entries = [...longTurn("first"), ...longTurn("second")];
+    await using screen = await renderElement(
+      <MessagesTimeline {...base} timelineEntries={entries} />,
+    );
+    const viewport = base.listRef.current!.getScrollableNode()!;
+    await vi.waitFor(() => expect(promptOffset(screen.container, viewport, "second")).toBe(16));
+    // ChatView stops following once the opening releases it; the reply streams on below.
+    const grown = [...longTurn("first"), ...longTurn("second", "Still going\n\n")];
+    await screen.rerender(
+      <MessagesTimeline {...base} timelineEntries={grown} liveFollowEnabled={false} />,
+    );
+    await vi.waitFor(() => expect(screen.text()).toContain("Still going"));
+    expect(promptOffset(screen.container, viewport, "second")).toBe(16);
+    // The list's own scroll adjustments, not the reader's, record the position.
+    await act(() => viewport.dispatchEvent(new Event("scroll")));
+
+    await screen.rerender(
+      <MessagesTimeline
+        {...base}
+        routeThreadKey="environment-local:thread-elsewhere"
+        timelineEntries={[message("Elsewhere")]}
+      />,
+    );
+    await vi.waitFor(() => expect(screen.text()).toContain("Elsewhere"));
+    await screen.rerender(
+      <MessagesTimeline
+        {...base}
+        routeThreadKey={thread}
+        timelineEntries={[...grown, ...longTurn("third")]}
+      />,
+    );
+    await vi.waitFor(() => expect(promptOffset(screen.container, viewport, "third")).toBe(16));
+  });
+
   it("keeps rows in item order after a reload or thread switch, before any timer runs", async () => {
     setup();
     // NVDA's browse mode keeps the first DOM order it reads, so a timer that sorts rows later is too late.
@@ -828,6 +933,7 @@ describe("MessagesTimeline messages", () => {
           const offset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
           return offset >= 0 && offset < 100;
         });
+      await expectOpened(screen.container);
       await act(() => {
         void props.listRef.current!.scrollToIndex({ index: 0, animated: false });
       });
@@ -1830,7 +1936,8 @@ describe("MessagesTimeline thread find", () => {
     const element = (next: Partial<TimelineProps>) => (
       <MessagesTimeline
         {...base}
-        timelineEntries={[message("Where is the sidebar fix?")]}
+        // No prompt to open on, so only find releases follow.
+        timelineEntries={[message("The sidebar fix is in.", { role: "assistant" })]}
         onViewportAttach={(viewport) =>
           viewport.subscribe((navigation) => navigations.push(navigation))
         }
