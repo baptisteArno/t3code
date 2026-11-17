@@ -261,6 +261,7 @@ import {
   createPendingTurnAppender,
   createThreadFeedGrouping,
   isCompactionCommandFeedEntry,
+  latestPromptRowId,
   type GroupedThreadFeedRow,
   type ThreadFeedRow,
 } from "./pending-thread-feed";
@@ -3814,6 +3815,16 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     workflowOpeningMessageId: workflowOpening?.messageId,
     setupAnchorIndex: props.worktreeSetup || props.preparingWorktree ? setupAnchorIndex : undefined,
   });
+  // The feed remounts per thread, and LegendList takes its initial scroll from the first rows. It
+  // opens with the latest prompt at the top so the reply starts in view, unless a jump or a
+  // just-sent turn owns the position; decided once so later rows never retarget it.
+  const [openingRowId, setOpeningRowId] = useState<string | null | undefined>(undefined);
+  let openingRow = openingRowId;
+  if (openingRow === undefined && groupedFeed.length > 0) {
+    openingRow = jumpToMessageId || props.anchorMessageId ? null : latestPromptRowId(groupedFeed);
+    setOpeningRowId(openingRow);
+  }
+  const openingIndex = openingRow ? groupedFeed.findIndex((entry) => entry.id === openingRow) : -1;
   const { contentInsetEndAdjustment } = props;
   const attachList = (list: LegendListRef | null) => {
     listRef.current = list;
@@ -4284,7 +4295,17 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             scrollToOverflowEnabled
             estimatedItemSize={180}
             alignItemsAtEnd
-            initialScrollAtEnd
+            {...(openingIndex >= 0
+              ? {
+                  initialScrollIndex: {
+                    index: openingIndex,
+                    viewPosition: 0,
+                    // Index targets already sit below a native top inset; a header spacer is content.
+                    viewOffset:
+                      (usesNativeAutomaticInsets ? 0 : topContentInset) + CHAT_LIST_ANCHOR_OFFSET,
+                  },
+                }
+              : { initialScrollAtEnd: true })}
             onReady={() => {
               setLoadedListKey(feedThreadKey);
               reportMetrics(true);
