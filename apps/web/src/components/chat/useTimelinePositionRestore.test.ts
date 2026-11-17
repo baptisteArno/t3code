@@ -1,5 +1,44 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { measuredEndOffset, settleListScroll } from "./useTimelinePositionRestore";
+import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
+import {
+  measuredEndOffset,
+  resolveTimelineOpening,
+  settleListScroll,
+} from "./useTimelinePositionRestore";
+
+describe("resolveTimelineOpening", () => {
+  const row = (id: string, role: "user" | "assistant") =>
+    ({ id, kind: "message", message: { role } }) as MessagesTimelineRow;
+  const rows = [
+    row("ask", "user"),
+    row("reply", "assistant"),
+    row("again", "user"),
+    row("end", "assistant"),
+  ];
+  const history = { rowId: "reply", offsetWithinRow: 0, scrollOffset: 0, atEnd: false };
+
+  it.each([
+    [
+      "the reader's place in history",
+      history,
+      rows,
+      false,
+      { kind: "remembered", position: history },
+    ],
+    ["the latest prompt", undefined, rows, false, { kind: "latestPrompt", rowId: "again" }],
+    [
+      "the latest prompt when left at the end",
+      { ...history, atEnd: true },
+      rows,
+      false,
+      { kind: "latestPrompt", rowId: "again" },
+    ],
+    ["the end when a sent turn is anchored", undefined, rows, true, { kind: "end" }],
+    ["the end without a prompt", undefined, [row("end", "assistant")], false, { kind: "end" }],
+  ] as const)("opens on %s", (_, remembered, timelineRows, anchored, expected) => {
+    expect(resolveTimelineOpening(remembered, timelineRows, anchored)).toEqual(expected);
+  });
+});
 
 describe("settleListScroll", () => {
   it("hands off when a streaming reply keeps moving the end", async () => {
