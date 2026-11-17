@@ -27,7 +27,12 @@ import {
 
 export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
 export type ComposerSlashCommand = "model" | "side" | "btw" | "clear";
-export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
+export type ComposerSubmissionIntent = "foreground" | "background" | "alternate" | "stay";
+
+/** Mod+Enter, whether it queues, steers or sends, skips Next thread after sending. */
+export function composerIntentStaysOnThread(intent: ComposerSubmissionIntent) {
+  return intent === "stay" || intent === "alternate";
+}
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -93,6 +98,7 @@ export function composerSubmissionIntentForKey(input: {
   if (command === "composer.sendAlternate" && input.isRunning) return "alternate";
   if (command === "composer.sendBackground" && input.isDraftThread) return "background";
   if (command === "composer.sendAndNewThread" && !input.isDraftThread) return "background";
+  if (command === "composer.sendAndStay" && !input.isDraftThread && !input.isRunning) return "stay";
   if (command !== null || event.key !== "Enter" || event.shiftKey || event.altKey) return null;
   if (
     composerRequiresModifier(input.sendShortcut, input.prompt ?? "") &&
