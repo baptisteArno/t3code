@@ -130,7 +130,7 @@ import {
   McpAppTimelineRow,
 } from "./TimelineAssistantRows";
 import { V2EventTimelineRow } from "./TimelineV2EventRow";
-import { startTimelinePositionRestore } from "./useTimelinePositionRestore";
+import { resolveTimelineOpening, startTimelinePositionRestore } from "./useTimelinePositionRestore";
 import {
   attachTimelineViewport,
   nextListOpening,
@@ -436,11 +436,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [expandedAttemptIds, setExpandedAttemptIds] = useState<ReadonlySet<RunAttemptId>>(
     () => listState.rememberedPosition?.disclosures?.attempts ?? new Set(),
   );
-  // A list that opens on a thread with find open takes the opening step below,
-  // so the restore runs and releases follow once for find.
-  const [positionedThreadKey, setPositionedThreadKey] = useState<string | null>(() =>
-    listState.rememberedPosition?.atEnd === false || findOpen ? null : listIdentityKey,
-  );
+  // Every opening takes the step below: it lands on the latest prompt, a
+  // remembered row or the end, and releases follow once for find.
+  const [positionedThreadKey, setPositionedThreadKey] = useState<string | null>(null);
   const restoringThreadPosition = positionedThreadKey !== listIdentityKey;
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
@@ -772,10 +770,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const runs = useStableHandoffRuns(runsProp);
   const minimapItems = deriveTimelineMinimapItems(rows);
   const minimapRowIndices = minimapItems.map((item) => item.rowIndex);
+  const newTurnAnchored = anchorMessageId !== null;
+  const opening = restoringThreadPosition
+    ? resolveTimelineOpening(rememberedPosition, rows, newTurnAnchored)
+    : null;
+  const openingRowId =
+    opening?.kind === "remembered"
+      ? opening.position.rowId
+      : opening?.kind === "latestPrompt"
+        ? opening.rowId
+        : null;
   const restoreRowIndex =
-    restoringThreadPosition && rememberedPosition?.atEnd === false
-      ? rows.findIndex((row) => row.id === rememberedPosition.rowId)
-      : -1;
+    openingRowId === null ? -1 : rows.findIndex((row) => row.id === openingRowId);
   const restoringAlwaysRender =
     restoringThreadPosition && restoreRowIndex >= 0 ? { indices: [restoreRowIndex] } : undefined;
   const showsEmptyState =
@@ -792,6 +798,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
   if (nextOpening !== listOpening) setListOpening(nextOpening);
   const listOpenedOn = nextOpening.mounted ? nextOpening.identity : null;
   const viewportRef = useRef<TimelineViewport | null>(null);
+  // Until the reader moves, a thread opened on its latest prompt is remembered
+  // as at its end, so it reopens on whatever prompt is latest by then.
+  const openedOnLatestPromptRef = useRef<string | null>(null);
   const navigateTimeline = () => viewportRef.current?.navigate({ releasesFollow: true });
   const restoreReady = restoringThreadPosition && rows.length > 0;
   // Z: syncs LegendList's scroll position with which thread it shows. The list
@@ -810,9 +819,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
       listIdentityKey,
       listOpenedOn,
       rememberedPosition,
+      newTurnAnchored,
       citationPending: citationRequest !== null,
       releaseForFind: findOpenAtOpening,
-      onPositioned: setPositionedThreadKey,
+      onPositioned: (identity, onLatestPrompt) => {
+        openedOnLatestPromptRef.current = onLatestPrompt ? identity : null;
+        setPositionedThreadKey(identity);
+        // Scroll events during the restore are ignored, so none may report where it landed.
+        const isAtEnd = resolveTimelineIsAtEnd(list.getState());
+        if (isAtEnd !== undefined && citationRequest === null) onIsAtEndChange(isAtEnd);
+      },
     });
   }, [
     citationRequest,
@@ -820,6 +836,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     listIdentityKey,
     listOpenedOn,
     listRef,
+    newTurnAnchored,
+    onIsAtEndChange,
     rememberedPosition,
     restoreReady,
     viewportRef,
@@ -1016,7 +1034,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
           },
         };
         lastRememberedRef.current = { data: rows, threadKey: listIdentityKey, position: measured };
-        rememberTimelinePosition(listIdentityKey, measured, followingEnd);
+        rememberTimelinePosition(
+          listIdentityKey,
+          measured,
+          followingEnd || openedOnLatestPromptRef.current === listIdentityKey,
+        );
       }
     }
     return isAtEnd;
@@ -1247,6 +1269,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
         })
       : null;
     viewportRef.current = viewport;
+    // Ahead of follow's listener, whose release rewrites the remembered position.
+    const stopOpeningHold = viewport?.subscribe(() => {
+      openedOnLatestPromptRef.current = null;
+    });
     const detachViewport = viewport ? onViewportAttach?.(viewport) : undefined;
     const stopRememberingRelease = viewport?.onFollowReleased(rememberReleasedPosition);
     const stopDisclosureReveal = viewport?.subscribe(() => {
@@ -1277,6 +1303,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       stopListeningToContentSize?.();
       stopRememberingRelease?.();
       stopDisclosureReveal?.();
+      stopOpeningHold?.();
       if (contentSizeFrame !== null) cancelAnimationFrame(contentSizeFrame);
       if (disclosureRevealFrameRef.current !== null) {
         cancelAnimationFrame(disclosureRevealFrameRef.current);
@@ -1423,6 +1450,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
           <TooltipScrollDismissArea
             ref={attachTimelineViewportElement}
             className="relative h-full min-h-0"
+            // Busy while it scrolls a newly shown thread to its opening.
+            aria-busy={restoringThreadPosition}
             data-assistant-citation-viewport="true"
           >
             {onCiteAssistantText && citationThreadRef ? (
