@@ -248,3 +248,13 @@ export function isCompactionCommandFeedEntry(entry: PendingThreadFeedEntry): boo
     isCompactionCommandMessage(entry.message)
   );
 }
+
+/** The row a thread opens on: the latest prompt, never a `/compact` command, which is a user message too. */
+export function latestPromptRowId(rows: ReadonlyArray<ThreadFeedRow>): string | null {
+  return (
+    rows.findLast(
+      (row): row is PendingThreadFeedEntry =>
+        row.type === "message" && row.message.role === "user" && !isCompactionCommandFeedEntry(row),
+    )?.id ?? null
+  );
+}
