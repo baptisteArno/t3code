@@ -108,6 +108,8 @@ describe("composerSubmissionIntentForKey", () => {
   it.each([
     ["enter", "one line", false, "foreground"],
     ["enter", "two\nlines", false, "foreground"],
+    ["enter", "one line", true, "stay"],
+    ["mod-enter-multiline", "one line", true, "stay"],
     ["mod-enter-multiline", "one line", false, "foreground"],
     ["mod-enter-multiline", "two\nlines", false, null],
     ["mod-enter-multiline", "two\nlines", true, "foreground"],
@@ -233,9 +235,7 @@ describe("composerSubmissionIntentForKey", () => {
         ctrlKey: platform !== "MacIntel",
       };
       const keyboardOpen = { ...input, platform, isSoftwareKeyboardOpen: true };
-      expect(composerSubmissionIntentForKey({ ...keyboardOpen, event: modEnter })).toBe(
-        "foreground",
-      );
+      expect(composerSubmissionIntentForKey({ ...keyboardOpen, event: modEnter })).toBe("stay");
       expect(
         composerSubmissionIntentForKey({ ...keyboardOpen, isRunning: true, event: modEnter }),
       ).toBe("alternate");
