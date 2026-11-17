@@ -61,6 +61,7 @@ import {
 import {
   type ComposerSubmissionIntent,
   collapseExpandedComposerCursor,
+  composerIntentStaysOnThread,
 } from "../../composer-logic";
 import { type ChatMessage, DEFAULT_INTERACTION_MODE } from "../../types";
 import { recordPromptSent } from "../GitHubStarPrompt";
@@ -1328,7 +1329,7 @@ export function useComposerSend(input: ComposerSendInput) {
           promptRef.current = "";
           clearComposerDraftContent(composerDraftTarget);
           composerRef.current?.resetCursorState();
-          if (advancesAfterSend) {
+          if (advancesAfterSend && !composerIntentStaysOnThread(submissionIntent)) {
             advanceAfterAnswer(
               scopeThreadRef(environmentId, threadIdForSend),
               approvalFeedbackTarget.requestId,
@@ -1660,6 +1661,7 @@ export function useComposerSend(input: ComposerSendInput) {
         const nextAfterSend =
           advancesAfterSend &&
           submissionIntent !== "background" &&
+          !composerIntentStaysOnThread(submissionIntent) &&
           currentRouteThreadKeyRef.current === routeThreadKey
             ? nextThreadAfterSend(scopeThreadRef(environmentId, threadIdForSend))
             : undefined;
