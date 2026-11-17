@@ -73,6 +73,8 @@ export type LoadEarlierThreadHistoryInput = {
   readonly threadId: ThreadId;
   readonly throughEntryId?: string;
   readonly workAnchorId?: string;
+  /** Pages past wake notifications to the latest user message. */
+  readonly throughPrompt?: boolean;
 };
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -100,6 +102,7 @@ export function createThreadEnvironmentAtoms<R, E>(
       input.threadId,
       input.throughEntryId,
       input.workAnchorId,
+      input.throughPrompt,
     );
   });
 
