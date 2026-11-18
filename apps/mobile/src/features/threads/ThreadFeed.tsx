@@ -3535,6 +3535,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             navigation.navigate("ThreadReview", {
               environmentId: props.environmentId,
               threadId: props.threadId,
+              view: "diff",
             });
           },
           () => {
