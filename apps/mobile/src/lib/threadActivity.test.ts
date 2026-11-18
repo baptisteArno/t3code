@@ -956,6 +956,58 @@ describe("buildThreadFeed", () => {
     expect(
       messageFoldRunId(buildThreadFeed([projected(userMessage(), 0)]), "message-user", []),
     ).toBe(null);
+
+    // A delegate reporting back starts a wake run that carries the prompt's response on: the
+    // message the first run ended on while it waited folds with the rest once the wake ends.
+    const wakeRunId = RunId.make("run-wake");
+    const wakeItems = [
+      projected(userMessage(), 0),
+      projected(command(), 1),
+      projected(middle, 2),
+      projected(
+        {
+          ...base("item-wake", "2026-06-20T00:00:04.000Z", 3),
+          runId: wakeRunId,
+          type: "notification",
+          source: { kind: "delegated_task", taskIds: [] },
+          outcome: "completed",
+          summary: "Review finished",
+        },
+        3,
+      ),
+    ];
+    const waking = deriveThreadFeedPresentation(
+      buildThreadFeed(wakeItems),
+      {
+        runId: wakeRunId,
+        status: "running",
+        startedAt: "2026-06-20T00:00:04.000Z",
+        completedAt: null,
+      },
+      new Set(),
+      new Set(),
+      "2026-06-20T00:00:04.000Z",
+    );
+    expect(waking.map((entry) => entry.id)).toEqual([
+      "message-user",
+      `run-fold:${runId}`,
+      "message-middle",
+      `run-fold:${wakeRunId}`,
+      "local:thread-1:item-wake",
+      "live-activity-row",
+    ]);
+    const wakeFeed = buildThreadFeed([
+      ...wakeItems,
+      projected({ ...assistantMessage("2026-06-20T00:00:05.000Z"), runId: wakeRunId }, 4),
+    ]);
+    const wakeRows = deriveThreadFeedPresentation(wakeFeed, null, new Set());
+    expect(wakeRows.map((entry) => entry.id)).toEqual([
+      "message-user",
+      `run-fold:${runId}`,
+      "message-assistant",
+    ]);
+    expect(wakeRows[1]).toMatchObject({ label: "Worked for 4s" });
+    expect(messageFoldRunId(wakeFeed, "message-middle", wakeRows)).toBe(runId);
   });
 
   it("folds progress messages while keeping the final assistant answer visible", () => {
