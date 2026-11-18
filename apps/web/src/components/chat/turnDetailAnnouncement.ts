@@ -8,7 +8,7 @@ import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
 import {
   liveWorkEntryLabel,
   timelineEntryRunId,
-  timelineEntryStartsResponse,
+  timelineEntryStartsRun,
 } from "./MessagesTimeline.logic";
 import { markdownPlainText } from "./timelineMinimapItems";
 
@@ -122,7 +122,7 @@ export function turnDetail(
   let index = entries.length - 1;
   for (; index >= 0; index -= 1) {
     const entry = entries[index]!;
-    if (timelineEntryStartsResponse(entry)) break;
+    if (timelineEntryStartsRun(entry)) break;
     if (entry.id === knownTailId) fresh = false;
     if (entry.kind === "event") continue;
     if (entry.kind === "work") {
