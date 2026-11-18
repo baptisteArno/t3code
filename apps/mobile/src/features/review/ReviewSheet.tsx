@@ -1,9 +1,7 @@
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
-import { LegendList } from "@legendapp/list/react-native";
-import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { AppBar } from "../../components/ui/AppBar";
 import type { AppBarMenuItem } from "../../components/ui/AppBar.types";
 import type { ReviewSectionItem } from "./reviewModel";
@@ -17,12 +15,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { Pressable, ScrollView, type NativeSyntheticEvent, StyleSheet, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  type NativeSyntheticEvent,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { RefreshControl } from "../../components/ui/RefreshControl";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReduceMotionEnabled } from "../../lib/appState";
 import { useContentTopInset, useSheetContentBottomInset } from "../../components/ui/useBarInset";
-import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
@@ -33,7 +37,6 @@ import {
   ContentStatus,
   contentStatusContainerStyle,
 } from "../../components/ui/ContentBand";
-import { PaneListItem } from "../../components/ui/PaneListItem";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { SheetPane } from "../../components/ui/SheetPane";
 import { useEnvironmentPresentation } from "../../state/presentation";
@@ -47,7 +50,14 @@ import {
   useWorkspacePaneState,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
-import { clearReviewFileReveal, useReviewCacheForThread, useReviewFileReveal } from "./reviewState";
+import {
+  clearReviewFileReveal,
+  revealReviewFile,
+  useReviewCacheForThread,
+  useReviewFileReveal,
+} from "./reviewState";
+import { ReviewFileTree } from "./ReviewFileTree";
+import { reviewFileStatus, type ReviewTreeFile } from "./reviewFileTreeRows";
 import {
   isNativeReviewDiffDrawEvent,
   type NativeReviewDiffViewHandle,
@@ -76,12 +86,15 @@ function ReviewHeader(
     readonly selectedRepositoryKey: string | null;
     readonly onSelectRepository: (key: string | null) => void;
     readonly fileFilter: ReturnType<typeof usePullRequestFileFilter>;
+    readonly showWordWrapToggle: boolean;
+    readonly backLabel: string;
     readonly onSelectSection: (sectionId: string) => void;
     readonly onReturnToThread: () => void;
   },
 ) {
   const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { panes } = useWorkspacePaneState();
+  const { appearance, setCodeWordBreak } = useAppearancePreferences();
   const presentation = useReviewHeaderPresentation(props);
   const gt = useGT();
   const sectionAction = (section: ReviewSectionItem | null, title: string): AppBarMenuItem => ({
@@ -99,21 +112,33 @@ function ReviewHeader(
       subtitle={presentation.subtitle}
       onBack={props.onReturnToThread}
       hideBottomBorder
-      backInSplitView={{ accessibilityLabel: gt("Back to chat"), icon: "chevron.left" }}
-      actions={
-        props.showChangedFilesToggle
+      backInSplitView={{ accessibilityLabel: props.backLabel, icon: "chevron.left" }}
+      actions={[
+        ...(props.showWordWrapToggle
+          ? [
+              {
+                accessibilityLabel: appearance.codeWordBreak
+                  ? gt("Disable word wrap")
+                  : gt("Enable word wrap"),
+                icon: "text.alignleft" as const,
+                selected: appearance.codeWordBreak,
+                onPress: () => setCodeWordBreak(!appearance.codeWordBreak),
+              },
+            ]
+          : []),
+        ...(props.showChangedFilesToggle
           ? [
               {
                 accessibilityLabel: panes.auxiliaryPaneVisible
                   ? gt("Hide changed files")
                   : gt("Show changed files"),
-                icon: "sidebar.right",
+                icon: "sidebar.right" as const,
                 selected: panes.auxiliaryPaneVisible,
                 onPress: toggleAuxiliaryPane,
               },
             ]
-          : undefined
-      }
+          : []),
+      ]}
       menus={[
         ...(presentation.gitMenu ? [presentation.gitMenu] : []),
         ...(props.showSectionToolbar
@@ -279,53 +304,12 @@ function ReviewSelectionActionBar(props: {
   );
 }
 
-interface ReviewNavigatorFile {
-  readonly id: string;
-  readonly path: string;
-  readonly additions: number;
-  readonly deletions: number;
-}
-
-const ReviewFileNavigatorRow = function ReviewFileNavigatorRow(props: {
-  readonly file: ReviewNavigatorFile;
-  readonly selected: boolean;
-  readonly onSelectFile: (fileId: string | null) => void;
-}) {
-  const { file, selected, onSelectFile } = props;
-  const handlePress = () => {
-    onSelectFile(selected ? null : file.id);
-  };
-
-  return (
-    <PaneListItem selected={selected} onPress={handlePress}>
-      <Text
-        className={
-          selected
-            ? "text-xs font-t3-bold text-foreground"
-            : "text-xs font-t3-medium text-foreground-secondary"
-        }
-        numberOfLines={2}
-      >
-        {file.path}
-      </Text>
-      <View className="mt-1 flex-row gap-2">
-        <Text className="text-2xs font-t3-bold text-adaptive-emerald-700-300">
-          +{formatDiffCount(file.additions)}
-        </Text>
-        <Text className="text-2xs font-t3-bold text-adaptive-rose-700-300">
-          -{formatDiffCount(file.deletions)}
-        </Text>
-      </View>
-    </PaneListItem>
-  );
-};
-
 interface ReviewFileNavigatorHandle {
   readonly setVisibleFile: (fileId: string | null) => void;
 }
 
 interface ReviewFileNavigatorProps {
-  readonly files: ReadonlyArray<ReviewNavigatorFile>;
+  readonly files: ReadonlyArray<ReviewTreeFile>;
   readonly sectionId: string | null;
   readonly onSelectFile: (fileId: string | null) => void;
   readonly ref?: Ref<ReviewFileNavigatorHandle>;
@@ -361,19 +345,12 @@ function ReviewFileNavigator({ files, sectionId, onSelectFile, ref }: ReviewFile
     [availableFileIds, sectionId],
   );
 
-  const handleSelectFile = (fileId: string | null) => {
-    setFileSelection({ sectionId, fileId });
-    onSelectFile(fileId);
+  const handleSelectFile = (fileId: string) => {
+    const next = selectedFileId === fileId ? null : fileId;
+    setFileSelection({ sectionId, fileId: next });
+    onSelectFile(next);
   };
   const gt = useGT();
-
-  const renderFile = ({ item }: { readonly item: ReviewNavigatorFile }) => (
-    <ReviewFileNavigatorRow
-      file={item}
-      selected={selectedFileId === item.id}
-      onSelectFile={handleSelectFile}
-    />
-  );
 
   return (
     <SheetPane>
@@ -384,18 +361,12 @@ function ReviewFileNavigator({ files, sectionId, onSelectFile, ref }: ReviewFile
         })}
         hideBottomBorder
       />
-      <ScreenContent insetHorizontal>
-        <LegendList
-          renderScrollComponent={NativeScrollView}
-          data={files}
-          // Rows keep their callback until extraData changes; it reads collapsed files.
-          extraData={[selectedFileId, handleSelectFile]}
-          keyExtractor={(file) => file.id}
-          estimatedItemSize={64}
-          recycleItems
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8 }}
-          renderItem={renderFile}
+      <ScreenContent>
+        <ReviewFileTree
+          key={sectionId}
+          files={files}
+          selectedFileId={selectedFileId}
+          onSelectFile={handleSelectFile}
         />
       </ScreenContent>
     </SheetPane>
@@ -405,6 +376,8 @@ function ReviewFileNavigator({ files, sectionId, onSelectFile, ref }: ReviewFile
 type ReviewSheetProps = StaticScreenProps<{
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** Without room for the tree beside the diff: "diff" shows the diff, otherwise the tree. */
+  readonly view?: "diff";
 }>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
@@ -412,11 +385,15 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const reduceMotion = useReduceMotionEnabled();
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
   const { panes } = useWorkspacePaneState();
+  const window = useWindowDimensions();
   const navigation = useNavigation();
   const selectDetail = useSelectWorkspaceDetail();
   const insets = useSafeAreaInsets();
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
   const { environmentId, threadId } = props.route.params;
+  // UIKit floats the inspector over a portrait page, so there the tree takes the screen instead.
+  const treeBesideDiff = panes.supportsAuxiliaryPane && window.width > window.height;
+  const showsTreeScreen = !treeBesideDiff && props.route.params.view !== "diff";
   const environment = useEnvironmentPresentation(environmentId);
   const retryEnvironment = useRetryEnvironment();
   const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
@@ -499,7 +476,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const isRefreshing = isPullRefreshing || isSelectedSectionPending || areFilePatchesPending;
   // A refresh that starts programmatically adds its height to the native top inset and
   // subtracts it when it ends. If topContentInset changes in between, the inset ends up
-  // short and the content sits under the header, so the fallback ScrollView starts over.
+  // short and the content sits under the header, so the fallback ScrollView and tree start over.
   const [fallbackInset, setFallbackInset] = useState(topContentInset);
   const [fallbackScrollViewKey, setFallbackScrollViewKey] = useState(0);
   if (fallbackInset !== topContentInset) {
@@ -610,10 +587,27 @@ export function ReviewSheet(props: ReviewSheetProps) {
       if (collapsedFileIds.includes(fileId)) toggleExpandedFile(fileId);
     }
   };
+  const reviewTreeFiles: ReadonlyArray<ReviewTreeFile> = reviewFiles.map((file) => ({
+    id: file.id,
+    path: file.path,
+    status: reviewFileStatus(file.changeType),
+    additions: file.additions,
+    deletions: file.deletions,
+  }));
+  const handleOpenFileDiff = (fileId: string) => {
+    const file = reviewFiles.find((candidate) => candidate.id === fileId);
+    if (!file || !selectedSection || !threadKey) return;
+    // The diff expands a revealed file once it scrolls into view, which a first file never does.
+    if (collapsedFileIds.includes(fileId)) toggleExpandedFile(fileId);
+    revealReviewFile(threadKey, selectedSection.id, file.path);
+    navigation.dispatch(
+      StackActions.push("ThreadReview", { environmentId, threadId, view: "diff" }),
+    );
+  };
   const renderInspector = () => (
     <ReviewFileNavigator
       ref={reviewFileNavigatorRef}
-      files={nativeReviewDiffData.files}
+      files={reviewTreeFiles}
       sectionId={selectedSection?.id ?? null}
       onSelectFile={(fileId) => void handleSelectFile(fileId)}
     />
@@ -669,12 +663,13 @@ export function ReviewSheet(props: ReviewSheetProps) {
     .filter((part): part is string => Boolean(part))
     .join(" · ");
 
-  const showChangedFilesPane =
+  const showsNativeDiff =
     !showConnectionNotice &&
     selectedSection !== null &&
     parsedDiff.kind === "files" &&
     NativeReviewDiffView !== null;
-  const showChangedFilesToggle = panes.supportsAuxiliaryPane && showChangedFilesPane;
+  const showChangedFilesPane = showsNativeDiff && treeBesideDiff;
+  const showTree = showsNativeDiff && showsTreeScreen;
 
   const allFilesHidden = reviewFiles.length === 0 && fileFilter.hiddenCount > 0;
   const hidesConfiguredFiles = fileFilter.rules.hidden.length > 0;
@@ -754,6 +749,9 @@ export function ReviewSheet(props: ReviewSheetProps) {
     .filter(Boolean)
     .join(" · ");
   const headerTitleText = selectedSection?.title ?? gt("Review changes");
+  const navigationState = navigation.getState();
+  const returnsToFiles =
+    navigationState?.routes[navigationState.index - 1]?.name === "ThreadReview";
 
   return (
     <>
@@ -773,10 +771,12 @@ export function ReviewSheet(props: ReviewSheetProps) {
         sectionMenu={sectionMenu}
         selectedSection={selectedSection}
         showSectionToolbar={showSectionToolbar}
-        showChangedFilesToggle={showChangedFilesToggle}
+        showChangedFilesToggle={showChangedFilesPane}
         selectedRepositoryKey={selectedRepository?.key ?? null}
         onSelectRepository={handleSelectRepository}
         fileFilter={fileFilter}
+        showWordWrapToggle={showsNativeDiff && !showTree}
+        backLabel={returnsToFiles ? gt("Back to files") : gt("Back to chat")}
         onRefresh={handlePullToRefresh}
         onSelectSection={selectSection}
         onReturnToThread={handleReturnToThread}
@@ -800,6 +800,30 @@ export function ReviewSheet(props: ReviewSheetProps) {
                 }
                 resource="review"
                 onRetry={handleRetryEnvironment}
+              />
+            </View>
+          ) : showTree ? (
+            <View
+              className="flex-1"
+              style={listHeader ? { paddingTop: topContentInset } : undefined}
+            >
+              {listHeader}
+              <ReviewFileTree
+                key={selectedSection?.id}
+                listKey={fallbackScrollViewKey}
+                files={reviewTreeFiles}
+                selectedFileId={null}
+                onSelectFile={handleOpenFileDiff}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={isRefreshing}
+                    onRefresh={() => void handlePullToRefresh()}
+                  />
+                }
+                contentInset={{
+                  top: listHeader ? 0 : topContentInset,
+                  bottom: bottomContentInset,
+                }}
               />
             </View>
           ) : selectedSection &&
