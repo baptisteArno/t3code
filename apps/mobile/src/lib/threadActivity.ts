@@ -6,6 +6,16 @@ import { linkRequestTargetName } from "@t3tools/client-runtime/link-request";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { turnHasChanges } from "@t3tools/client-runtime/state/thread-repositories";
+import {
+  deriveThreadResponses,
+  notificationContinuesResponse,
+  responseWaitedMs,
+  runIdsByResponse,
+  type ResponseBoundary,
+  type RunSpans,
+  type ThreadResponses,
+  workedForLabel,
+} from "@t3tools/client-runtime/state/thread-execution";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import {
   isLiveSubagentTurnItem,
@@ -1148,6 +1158,7 @@ export function messageFoldRunId(
   entryId: string,
   presented: ReadonlyArray<{ readonly type: string; readonly runId?: RunId | null }>,
 ): RunId | null {
+  const { responseRunId } = deriveFeedResponses(feed);
   let runlessKey: RunId | null = null;
   const lastSteerIdByRunId = new Map<RunId, string>();
   for (const entry of feed) {
@@ -1155,11 +1166,11 @@ export function messageFoldRunId(
     if (entry.message.role === "user") {
       if (entry.id === entryId) return null;
       if (isSteerMessage(entry.message) && entry.message.runId != null) {
-        lastSteerIdByRunId.set(entry.message.runId, entry.id);
+        lastSteerIdByRunId.set(responseRunId(entry.message.runId), entry.id);
       }
       runlessKey = entry.message.runId == null ? RunId.make(`runless:${entry.id}`) : null;
     } else if (entry.id === entryId) {
-      const runId = entry.message.runId ?? runlessKey;
+      const runId = entry.message.runId == null ? runlessKey : responseRunId(entry.message.runId);
       const steerId = runId === null ? undefined : lastSteerIdByRunId.get(runId);
       if (runId === null || steerId === undefined) return runId;
       // Tool visibility can drop all output before the steer, leaving no split.
@@ -1188,14 +1199,60 @@ function feedEntryFoldRunId(entry: ThreadFeedEntry, runlessKey: RunId | null): R
     : null;
 }
 
-function finalAnswerIds(feed: ReadonlyArray<ThreadFeedEntry>): ReadonlySet<MessageId> {
+function feedNotificationActivity(entry: ThreadFeedEntry) {
+  if (entry.type !== "activity-group") return undefined;
+  for (const activity of entry.activities) {
+    const item = activity.projectedItem.item;
+    if (item.type === "notification") return item;
+  }
+  return undefined;
+}
+
+function deriveFeedResponses(feed: ReadonlyArray<ThreadFeedEntry>): ThreadResponses {
+  // A window that starts mid-response lacks its prompt, so its first run stands in for it.
+  const firstBoundaryIndex = feed.findIndex(startsRun);
+  const leadingRunId = feed
+    .slice(0, firstBoundaryIndex === -1 ? undefined : firstBoundaryIndex)
+    .map(feedEntryRunId)
+    .find((runId) => runId !== null);
+  return deriveThreadResponses([
+    ...(leadingRunId === undefined ? [] : [{ kind: "prompt" as const, runId: leadingRunId }]),
+    ...feed.flatMap((entry): ResponseBoundary[] => {
+      if (entry.type === "message") {
+        return entry.message.role === "user" && !isSteerMessage(entry.message)
+          ? [{ kind: "prompt", runId: entry.message.runId ?? null }]
+          : [];
+      }
+      const notification = feedNotificationActivity(entry);
+      return notification === undefined
+        ? []
+        : [{ kind: "notification", runId: notification.runId, source: notification.source }];
+    }),
+  ]);
+}
+
+function isContinuingNotificationGroup(entry: ThreadFeedEntry, responses: ThreadResponses) {
+  const notification = feedNotificationActivity(entry);
+  return (
+    notification?.runId != null &&
+    notificationContinuesResponse(notification.source) &&
+    responses.continuesResponse(notification.runId)
+  );
+}
+
+function finalAnswerIds(
+  feed: ReadonlyArray<ThreadFeedEntry>,
+  responses: ThreadResponses,
+): ReadonlySet<MessageId> {
   const ids = new Set<MessageId>();
   for (const entry of feed) {
+    // A wake's answer replaces the one the run before it gave while it waited.
     if (
       entry.type === "message" &&
       entry.message.role === "assistant" &&
       entry.message.projectedItem?.item.type === "assistant_message" &&
-      entry.message.projectedItem.item.phase === "final_answer"
+      entry.message.projectedItem.item.phase === "final_answer" &&
+      (entry.message.runId == null || responses.isLatestRun(entry.message.runId))
     ) {
       ids.add(entry.message.id);
     }
@@ -1205,13 +1262,16 @@ function finalAnswerIds(feed: ReadonlyArray<ThreadFeedEntry>): ReadonlySet<Messa
 
 function deriveThreadFeedRunFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
+  responses: ThreadResponses,
   latestRun: ThreadFeedLatestRun | null,
   runlessWorkActive: boolean,
   feedFailedRunIds: ReadonlySet<RunId>,
+  runSpans: RunSpans | undefined,
   resolve: MessageResolver,
 ): ReadonlyMap<string, ThreadFeedRunFold> {
+  const { responseRunId } = responses;
   const terminalAssistantMessageIdByRun = new Map<RunId, string>();
-  const retainedAnswerIds = finalAnswerIds(feed);
+  const retainedAnswerIds = finalAnswerIds(feed, responses);
   const interruptedRunIds = new Set<RunId>();
   const failedRunIds = new Set(feedFailedRunIds);
   const promptIndexByRunId = new Map<RunId, number>();
@@ -1231,6 +1291,8 @@ function deriveThreadFeedRunFolds(
     RunId,
     {
       entries: ThreadFeedEntry[];
+      /** The run each entry belongs to; a response's wakes add runs after its first. */
+      entryRunIds: RunId[];
       startBoundary: string | null;
       /** Each steer after the run has output starts a segment at this index into `entries`. */
       steerSegments: Array<{ startIndex: number; steer: ThreadFeedEntry }>;
@@ -1239,11 +1301,12 @@ function deriveThreadFeedRunFolds(
   let runlessKey: RunId | null = null;
   let responseKey: RunId | null = null;
   let pendingUserBoundary: string | null = null;
+  const streamingRunIds = new Set<RunId>();
   for (const [index, entry] of feed.entries()) {
     if (entry.type === "message" && entry.message.role === "user") {
       const steerGroup =
         isSteerMessage(entry.message) && entry.message.runId != null
-          ? groupsByRunId.get(entry.message.runId)
+          ? groupsByRunId.get(responseRunId(entry.message.runId))
           : undefined;
       if (steerGroup && steerGroup.entries.length > 0) {
         // Back-to-back steers split once, after the last of them.
@@ -1260,24 +1323,33 @@ function deriveThreadFeedRunFolds(
     const ownRunId = feedEntryFoldRunId(entry, runlessKey);
     if (!ownRunId) continue;
     // Resumed subagents keep their original turn position and fold, leaving later run folds under their own prompts.
+    const ownResponseRunId = responseRunId(ownRunId);
     const runId =
-      responseKey !== null && (promptIndexByRunId.get(ownRunId) ?? -1) > index
+      responseKey !== null && (promptIndexByRunId.get(ownResponseRunId) ?? -1) > index
         ? responseKey
-        : ownRunId;
+        : ownResponseRunId;
+    const memberRunId = runId === ownResponseRunId ? ownRunId : runId;
     let group = groupsByRunId.get(runId);
     if (!group) {
-      group = { entries: [], startBoundary: pendingUserBoundary, steerSegments: [] };
+      group = {
+        entries: [],
+        entryRunIds: [],
+        startBoundary: pendingUserBoundary,
+        steerSegments: [],
+      };
       pendingUserBoundary = null;
       groupsByRunId.set(runId, group);
     }
     group.entries.push(entry);
+    group.entryRunIds.push(memberRunId);
     if (entry.type === "message") {
       terminalAssistantMessageIdByRun.set(runId, entry.id);
+      if (entry.message.streaming) streamingRunIds.add(memberRunId);
     }
     if (entry.type !== "activity-group") continue;
     for (const activity of entry.activities) {
       const item = activity.projectedItem.item;
-      if (item.type === "run_interrupt_result") interruptedRunIds.add(runId);
+      if (item.type === "run_interrupt_result") interruptedRunIds.add(memberRunId);
       if (
         runId === runlessKey &&
         item.type === "error" &&
@@ -1290,17 +1362,33 @@ function deriveThreadFeedRunFolds(
   }
 
   const activeRunId = unsettledRunId(latestRun);
+  const runStaysOpen = (runId: RunId) =>
+    runId === activeRunId ||
+    (runlessWorkActive && runId === runlessKey) ||
+    interruptedRunIds.has(runId) ||
+    failedRunIds.has(runId) ||
+    streamingRunIds.has(runId);
+  // A stopped run alone folds under "You stopped"; a stopped wake stays in view after the rest.
+  const stoppedLatestRunId =
+    latestRun?.status === "interrupted" || latestRun?.status === "cancelled"
+      ? latestRun.runId
+      : null;
+  const responseRunIds = runSpans === undefined ? undefined : runIdsByResponse(runSpans, responses);
   const foldsByAnchorId = new Map<string, ThreadFeedRunFold>();
   for (const [runId, group] of groupsByRunId) {
-    if (
-      runId === activeRunId ||
-      (runlessWorkActive && runId === runlessKey) ||
-      interruptedRunIds.has(runId) ||
-      failedRunIds.has(runId) ||
-      group.entries.some((entry) => entry.type === "message" && entry.message.streaming)
-    ) {
-      continue;
-    }
+    const entryStaysOpen = group.entryRunIds.map(
+      (memberRunId) =>
+        runStaysOpen(memberRunId) || (memberRunId !== runId && memberRunId === stoppedLatestRunId),
+    );
+    const settledEnd = (from: number, to: number) =>
+      group.entries
+        .slice(from, to)
+        .flatMap((entry, offset) =>
+          entryStaysOpen[from + offset]
+            ? []
+            : [entry.type === "message" ? entry.message.updatedAt : entry.createdAt],
+        )
+        .reduce<string | null>(maxIsoTimestamp, null);
     const terminalAssistantId = terminalAssistantMessageIdByRun.get(runId);
     // Folded dividers lose their place in the turn, so only the latest stays visible.
     const visibleCompactionId = group.entries.findLast(
@@ -1309,16 +1397,18 @@ function deriveThreadFeedRunFolds(
     const hiddenEntryIds = new Set(
       group.entries
         .filter(
-          (entry) =>
+          (entry, index) =>
+            !entryStaysOpen[index] &&
             entry.id !== terminalAssistantId &&
             !(entry.type === "message" && retainedAnswerIds.has(entry.message.id)) &&
             entry.id !== visibleCompactionId &&
-            !staysOutOfFold(entry),
+            !staysOutOfFold(entry, responses),
         )
         .map((entry) => entry.id),
     );
     const firstEntry = group.entries[0];
-    const lastEntry = group.entries.at(-1);
+    // Timing reads only settled runs, so a wake still streaming leaves the label alone.
+    const lastEntry = group.entries.findLast((_, index) => !entryStaysOpen[index]);
     if (!firstEntry || !lastEntry) continue;
     const hidesNonCompactionWork = (entries: ReadonlyArray<ThreadFeedEntry>) =>
       entries.some(
@@ -1327,32 +1417,63 @@ function deriveThreadFeedRunFolds(
           !(entry.type === "activity-group" && isContextCompactionActivityGroup(entry)),
       );
     if (!hidesNonCompactionWork(group.entries)) continue;
-    const terminalEntry = terminalAssistantId
-      ? group.entries.find((entry) => entry.id === terminalAssistantId)
-      : null;
-    const latestRunMatches = latestRun?.runId === runId;
+    const terminalIndex = terminalAssistantId
+      ? group.entries.findIndex((entry) => entry.id === terminalAssistantId)
+      : -1;
+    const terminalEntry =
+      terminalIndex >= 0 && !entryStaysOpen[terminalIndex] ? group.entries[terminalIndex] : null;
+    const singleRun = group.entryRunIds.every((memberRunId) => memberRunId === runId);
+    const latestRunMatches = singleRun && latestRun?.runId === runId;
     const lastEntryEnd =
       lastEntry.type === "message" ? lastEntry.message.updatedAt : lastEntry.createdAt;
+    // The latest run's own end covers its checkpoint after the last entry.
+    const latestRunEnd =
+      latestRun?.completedAt != null &&
+      group.entryRunIds.some(
+        (memberRunId, index) => memberRunId === latestRun.runId && !entryStaysOpen[index],
+      )
+        ? latestRun.completedAt
+        : null;
+    const elapsedEnd =
+      [
+        terminalEntry?.type === "message" ? terminalEntry.message.updatedAt : null,
+        latestRunEnd,
+      ].reduce<string | null>(maxIsoTimestamp, lastEntryEnd) ?? lastEntryEnd;
     const elapsedMs =
       latestRunMatches && latestRun.startedAt && latestRun.completedAt
         ? computeElapsedMs(latestRun.startedAt, latestRun.completedAt)
-        : computeElapsedMs(
-            group.startBoundary ?? firstEntry.createdAt,
-            maxIsoTimestamp(
-              terminalEntry?.type === "message" ? terminalEntry.message.updatedAt : null,
-              lastEntryEnd,
-            ) ?? lastEntryEnd,
-          );
+        : computeElapsedMs(group.startBoundary ?? firstEntry.createdAt, elapsedEnd);
     const duration = elapsedMs === null ? null : formatDuration(elapsedMs, resolve);
     const interrupted =
       latestRunMatches && (latestRun.status === "interrupted" || latestRun.status === "cancelled");
+    const subagentIds = new Set(
+      group.entries.flatMap((entry) =>
+        entry.type === "activity-group"
+          ? entry.activities.flatMap(({ projectedItem: { item } }) =>
+              item.type === "subagent" ? [item.subagentId] : [],
+            )
+          : [],
+      ),
+    );
     const label = interrupted
       ? duration
         ? resolve(msg("You stopped after {duration}", { duration }))
         : resolve(msg("You stopped this response"))
-      : duration
-        ? resolve(msg("Worked for {duration}", { duration }))
-        : resolve(msg("Worked"));
+      : workedForLabel(
+          {
+            elapsedMs,
+            waitedMs:
+              runSpans === undefined
+                ? null
+                : responseWaitedMs(
+                    [runId, ...group.entryRunIds, ...(responseRunIds?.get(runId) ?? [])],
+                    runSpans,
+                    Date.parse(elapsedEnd),
+                  ),
+            subagentCount: subagentIds.size,
+          },
+          resolve,
+        );
     // The top row keeps the whole turn's time. Work after a steer folds under
     // its own row below that steer, keyed apart so each segment opens alone.
     const segments = [
@@ -1362,12 +1483,11 @@ function deriveThreadFeedRunFolds(
         label,
       },
       ...group.steerSegments.map(({ startIndex, steer }, index) => {
-        const entries = group.entries.slice(startIndex, group.steerSegments[index + 1]?.startIndex);
+        const endIndex = group.steerSegments[index + 1]?.startIndex ?? group.entries.length;
+        const entries = group.entries.slice(startIndex, endIndex);
         const segmentMs = computeElapsedMs(
           steer.createdAt,
-          entries
-            .map((entry) => (entry.type === "message" ? entry.message.updatedAt : entry.createdAt))
-            .reduce<string | null>(maxIsoTimestamp, null) ?? steer.createdAt,
+          settledEnd(startIndex, endIndex) ?? steer.createdAt,
         );
         return {
           runId: steerFoldRunId(runId, steer.id),
@@ -1489,7 +1609,7 @@ function latestRunsEqual(left: ThreadFeedLatestRun | null, right: ThreadFeedLate
 }
 
 /** Rows a fold leaves in view; the live fold skips them too, so settling keeps its place. */
-function staysOutOfFold(entry: ThreadFeedEntry): boolean {
+function staysOutOfFold(entry: ThreadFeedEntry, responses: ThreadResponses): boolean {
   return (
     entry.type === "html-render" ||
     entry.type === "sent-message" ||
@@ -1499,7 +1619,8 @@ function staysOutOfFold(entry: ThreadFeedEntry): boolean {
         (activity) =>
           activity.prominent ||
           activity.workEntry.questionAnswer !== undefined ||
-          activity.projectedItem.item.type === "notification" ||
+          (activity.projectedItem.item.type === "notification" &&
+            !isContinuingNotificationGroup(entry, responses)) ||
           activity.projectedItem.item.type === "handoff" ||
           // A child still working outlives its settled launching run;
           // its group stays visible while any member is live.
@@ -1510,6 +1631,11 @@ function staysOutOfFold(entry: ThreadFeedEntry): boolean {
 
 function feedEntryRunId(entry: ThreadFeedEntry): RunId | null {
   return entry.type === "message" ? (entry.message.runId ?? null) : entry.runId;
+}
+
+function feedEntryResponseRunId(entry: ThreadFeedEntry, responses: ThreadResponses): RunId | null {
+  const runId = feedEntryRunId(entry);
+  return runId === null ? null : responses.responseRunId(runId);
 }
 
 function isUserMessageEntry(entry: ThreadFeedEntry | undefined): boolean {
@@ -1525,6 +1651,7 @@ function isUserMessageEntry(entry: ThreadFeedEntry | undefined): boolean {
 function presentationRestart(
   previous: ThreadFeedPresentationBuild | null,
   feed: ReadonlyArray<ThreadFeedEntry>,
+  responses: ThreadResponses,
   latestRun: ThreadFeedLatestRun | null,
   expandedRunIds: ReadonlySet<RunId>,
   expandedWorkGroupIds: ReadonlySet<string>,
@@ -1541,6 +1668,7 @@ function presentationRestart(
     previous.runlessWorkActive !== runlessWorkActive ||
     previous.display.toolCallVisibility !== display.toolCallVisibility ||
     previous.display.revealedMessageId !== display.revealedMessageId ||
+    previous.display.runSpans !== display.runSpans ||
     !setsEqual(previous.expandedRunIds, expandedRunIds) ||
     !setsEqual(previous.expandedWorkGroupIds, expandedWorkGroupIds)
   ) {
@@ -1552,7 +1680,7 @@ function presentationRestart(
   const restart = previous.restarts[index];
   if (restart === undefined || !isUserMessageEntry(feed[restart.entry])) return null;
   for (let entryIndex = restart.entry; entryIndex < feed.length; entryIndex += 1) {
-    const runId = feedEntryRunId(feed[entryIndex]!);
+    const runId = feedEntryResponseRunId(feed[entryIndex]!, responses);
     const firstEntry = runId === null ? undefined : previous.firstEntryByRun.get(runId);
     if (firstEntry !== undefined && firstEntry < restart.entry) return null;
   }
@@ -1608,7 +1736,7 @@ function isSteerMessage(message: ThreadFeedMessage): boolean {
   );
 }
 
-function startsResponse(entry: ThreadFeedEntry): boolean {
+function startsRun(entry: ThreadFeedEntry): boolean {
   return (
     (entry.type === "message" && entry.message.role === "user" && !isSteerMessage(entry.message)) ||
     (entry.type === "activity-group" &&
@@ -1618,13 +1746,14 @@ function startsResponse(entry: ThreadFeedEntry): boolean {
 
 function zenAnswerMessageIds(
   feed: ReadonlyArray<ThreadFeedEntry>,
+  responses: ThreadResponses,
   start: number,
   answering: boolean,
   answeringRunId: RunId | null,
 ): ReadonlySet<MessageId> {
   const replies: Array<{ readonly message: ThreadFeedMessage; readonly index: number }> = [];
   const lastReplyByResponse = new Map<string, MessageId>();
-  const keptAnswers = new Set(finalAnswerIds(feed));
+  const keptAnswers = new Set(finalAnswerIds(feed, responses));
   let userMessages = 0;
   let awaitingReply = false;
   let candidate: MessageId | null = null;
@@ -1641,15 +1770,18 @@ function zenAnswerMessageIds(
       entry.type === "message" && entry.message.role === "assistant" ? entry.message : null;
     if (candidate !== null && reply !== null) keptAnswers.add(candidate);
     candidate = null;
-    if (answering && startsResponse(entry)) answeringFrom = index + 1;
+    if (answering && startsRun(entry)) answeringFrom = index + 1;
     if (entry.type === "message" && entry.message.role === "user") {
       userMessages += 1;
       awaitingReply = isSteerMessage(entry.message);
     } else if (reply !== null) {
       replies.push({ message: reply, index });
-      lastReplyByResponse.set(reply.runId ?? `runless:${userMessages}`, reply.id);
+      lastReplyByResponse.set(
+        reply.runId == null ? `runless:${userMessages}` : responses.responseRunId(reply.runId),
+        reply.id,
+      );
       if (awaitingReply) {
-        candidate = reply.id;
+        if (reply.runId == null || responses.isLatestRun(reply.runId)) candidate = reply.id;
         awaitingReply = false;
       }
     }
@@ -1671,7 +1803,7 @@ function zenAnswerMessageIds(
 function liveAnswerPreview(feed: ReadonlyArray<ThreadFeedEntry>): string | null {
   for (let index = feed.length - 1; index >= 0; index -= 1) {
     const entry = feed[index]!;
-    if (startsResponse(entry)) return null;
+    if (startsRun(entry)) return null;
     const texts =
       entry.type === "message"
         ? entry.message.role === "assistant"
@@ -1693,6 +1825,7 @@ function liveAnswerPreview(feed: ReadonlyArray<ThreadFeedEntry>): string | null 
 export interface ThreadFeedDisplay {
   readonly toolCallVisibility: ToolCallVisibility;
   readonly revealedMessageId: MessageId | null;
+  readonly runSpans?: RunSpans;
 }
 
 const DEFAULT_THREAD_FEED_DISPLAY: ThreadFeedDisplay = {
@@ -1713,9 +1846,11 @@ export function deriveThreadFeedPresentation(
   locale?: string,
 ): ThreadFeedEntry[] {
   const previous = cache?.presentation ?? null;
+  const responses = deriveFeedResponses(feed);
   const restart = presentationRestart(
     previous,
     feed,
+    responses,
     latestRun,
     expandedRunIds,
     expandedWorkGroupIds,
@@ -1750,7 +1885,7 @@ export function deriveThreadFeedPresentation(
   const zen = toolCallVisibility === "zen";
   const answering = isWorking && latestRun?.turnEnded !== true;
   const zenAnswerIds = zen
-    ? zenAnswerMessageIds(feed, start, answering, answering ? activeRunId : null)
+    ? zenAnswerMessageIds(feed, responses, start, answering, answering ? activeRunId : null)
     : null;
   for (let index = start; index < feed.length; index += 1) {
     let entry = feed[index]!;
@@ -1761,7 +1896,8 @@ export function deriveThreadFeedPresentation(
       entry.type === "viewed-images"
     )
       continue;
-    const runId = feedEntryRunId(entry);
+    // Keyed by response, so a rebuild never starts inside one.
+    const runId = feedEntryResponseRunId(entry, responses);
     if (runId !== null) {
       if (!firstEntryByRun.has(runId)) firstEntryByRun.set(runId, index);
       lastEntryByRun.set(runId, index);
@@ -1811,9 +1947,11 @@ export function deriveThreadFeedPresentation(
     ? new Map<string, ThreadFeedRunFold>()
     : deriveThreadFeedRunFolds(
         sourceFeed,
+        responses,
         latestRun,
         isWorking && runlessWorkActive,
         failedRunIds,
+        display.runSpans,
         resolve,
       );
   const collapsedEntryIds = new Set<string>();
@@ -1853,7 +1991,7 @@ export function deriveThreadFeedPresentation(
         liveFoldReady = activeRunId !== null || entry === runlessPrompt;
       } else if (
         liveFoldReady &&
-        !staysOutOfFold(entry) &&
+        !staysOutOfFold(entry, responses) &&
         !(entry.type === "activity-group" && isContextCompactionActivityGroup(entry))
       ) {
         result.push(liveFold);
