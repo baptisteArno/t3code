@@ -12,6 +12,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   type OrchestrationV2ExecutionNode,
+  type OrchestrationV2NotificationSource,
   type OrchestrationV2RunStatus,
   type OrchestrationV2RuntimeRequest,
 } from "@t3tools/contracts";
@@ -25,12 +26,14 @@ import { describe, expect, it } from "vite-plus/test";
 import { v2Projection } from "./orchestrationV2TestFixtures.ts";
 import {
   canResumeThread,
+  deriveThreadResponses,
   deriveReportedModelSelection,
   deriveLatestThreadRun,
   deriveProviderSubagentStatus,
   deriveProviderExtensionStatuses,
   deriveResumableRunId,
   deriveRunlessWorkStartedAt,
+  deriveRunSpans,
   deriveThreadActivityRun,
   pendingProviderStartup,
   deriveThreadRuntime,
@@ -42,7 +45,10 @@ import {
   presentProviderGoal,
   presentRunStop,
   readSelectedEffortValue,
+  responseWaitedMs,
+  runIdsByResponse,
   threadRuntimeHasInterruptibleRun,
+  workedForLabel,
 } from "./threadExecution.ts";
 
 const now = DateTime.makeUnsafe("2026-07-28T10:00:00.000Z");
@@ -633,6 +639,184 @@ describe("thread execution presentation", () => {
       activeRunId: null,
     });
     expect(threadRuntimeHasInterruptibleRun(runtime)).toBe(false);
+  });
+});
+
+describe("deriveThreadResponses", () => {
+  const prompt = (runId: string | null) =>
+    ({ kind: "prompt", runId: runId === null ? null : RunId.make(runId) }) as const;
+  const wake = (runId: string, source: OrchestrationV2NotificationSource) =>
+    ({ kind: "notification", runId: RunId.make(runId), source }) as const;
+  const command = { kind: "command" } as const;
+  const pullRequest = {
+    kind: "monitor",
+    pullRequest: { threadId: ThreadId.make("thread"), number: 1 } as never,
+  } as const;
+  const responsesOf = (boundaries: Parameters<typeof deriveThreadResponses>[0]) => {
+    const responses = deriveThreadResponses(boundaries);
+    const runs = [
+      ...new Set([...boundaries].flatMap(({ runId }) => (runId === null ? [] : [runId]))),
+    ];
+    return {
+      response: Object.fromEntries(runs.map((run) => [run, responses.responseRunId(run)])),
+      latest: runs.filter(responses.isLatestRun),
+    };
+  };
+
+  it.each([
+    {
+      name: "work the agent started carries its response on, chained to the first run",
+      boundaries: [
+        prompt("r1"),
+        wake("r2", { kind: "delegated_task", taskIds: [] }),
+        wake("r3", command),
+        wake("r4", { kind: "monitor" }),
+      ],
+      response: { r1: "r1", r2: "r1", r3: "r1", r4: "r1" },
+      latest: ["r4"],
+    },
+    {
+      name: "a pull request watch or system notice starts its own response",
+      boundaries: [
+        prompt("r1"),
+        wake("r2", pullRequest),
+        wake("r3", command),
+        wake("r4", { kind: "system" }),
+      ],
+      response: { r1: "r1", r2: "r2", r3: "r2", r4: "r4" },
+      latest: ["r1", "r3", "r4"],
+    },
+    {
+      name: "a prompt starts a new response, and a wake with nothing before it stands alone",
+      boundaries: [
+        wake("r1", command),
+        prompt(null),
+        wake("r2", command),
+        prompt("r3"),
+        wake("r4", command),
+      ],
+      response: { r1: "r1", r2: "r2", r3: "r3", r4: "r3" },
+      latest: ["r1", "r2", "r4"],
+    },
+    {
+      name: "a run keeps the response of its first input",
+      boundaries: [
+        prompt("r1"),
+        wake("r2", command),
+        wake("r2", pullRequest),
+        wake("r3", command),
+        prompt("r4"),
+        wake("r1", command),
+        wake("r5", command),
+      ],
+      response: { r1: "r1", r2: "r1", r3: "r1", r4: "r4", r5: "r4" },
+      latest: ["r3", "r5"],
+    },
+  ])("$name", ({ boundaries, response, latest }) => {
+    expect(responsesOf(boundaries)).toEqual({ response, latest });
+  });
+});
+
+describe("response time", () => {
+  const minute = 60_000;
+  const at = (minutes: number) => DateTime.makeUnsafe(Date.UTC(2026, 6, 28, 10) + minutes * minute);
+  const span = (id: string, from: number, to: number | null) => ({
+    id: RunId.make(id),
+    startedAt: at(from),
+    completedAt: to === null ? null : at(to),
+  });
+  const spans = deriveRunSpans(
+    [
+      span("r1", 0, 5),
+      span("r2", 6, 20),
+      span("r3", 10, 12),
+      span("r4", 38, 40),
+      span("r5", 50, 52),
+      span("live", 53, null),
+    ],
+    null,
+  );
+  // r1's wakes start r2 and r4; r5's wake is still going; r3 answers no boundary.
+  const responses = deriveThreadResponses([
+    { kind: "prompt", runId: RunId.make("r1") },
+    { kind: "notification", runId: RunId.make("r2"), source: { kind: "command" } },
+    { kind: "notification", runId: RunId.make("r4"), source: { kind: "command" } },
+    { kind: "prompt", runId: RunId.make("r5") },
+    { kind: "notification", runId: RunId.make("live"), source: { kind: "command" } },
+  ]);
+
+  const responseRuns = runIdsByResponse(spans, responses);
+  const all = Number.POSITIVE_INFINITY;
+
+  it.each([
+    { name: "a single run waits for nothing", runIds: ["r3"], until: all, waited: 0 },
+    {
+      name: "gaps between runs add up",
+      runIds: ["r1", "r2", "r4"],
+      until: all,
+      waited: 19 * minute,
+    },
+    {
+      name: "a run inside another adds no gap",
+      runIds: ["r1", "r2", "r3", "r4"],
+      until: all,
+      waited: 19 * minute,
+    },
+    {
+      name: "a wake whose entries are all hidden still counts",
+      runIds: ["r1", ...(responseRuns.get(RunId.make("r1")) ?? [])],
+      until: all,
+      waited: 19 * minute,
+    },
+    {
+      name: "a run after the label's end adds no wait",
+      runIds: ["r1", "r2", "r4"],
+      until: 20 * minute,
+      waited: minute,
+    },
+    {
+      name: "a run still going leaves the wait unknown",
+      runIds: ["r5", "live"],
+      until: all,
+      waited: null,
+    },
+  ])("$name", ({ runIds, until, waited }) => {
+    expect(
+      responseWaitedMs(
+        runIds.map((id) => RunId.make(id)),
+        spans,
+        until === all ? all : DateTime.toEpochMillis(at(until / minute)),
+      ),
+    ).toBe(waited);
+  });
+
+  it("keeps the same spans until a run starts or settles", () => {
+    const runs = [span("r1", 0, 5), span("live", 6, null)];
+    const first = deriveRunSpans(runs, null);
+    expect(deriveRunSpans([...runs], first)).toBe(first);
+    expect(deriveRunSpans([runs[0]!, span("live", 6, 9)], first)).not.toBe(first);
+  });
+
+  it.each([
+    { elapsedMs: 40 * minute, waitedMs: null, subagentCount: 0, label: "Worked for 40m 0s" },
+    {
+      elapsedMs: 58 * minute + 50_000,
+      waitedMs: 18 * minute + 10_000,
+      subagentCount: 4,
+      label: "Worked for 41m · waited 18m · 4 subagents",
+    },
+    { elapsedMs: 10_000, waitedMs: 400, subagentCount: 1, label: "Worked for 10s · 1 subagent" },
+    {
+      elapsedMs: 25 * 60 * minute,
+      waitedMs: 24 * 60 * minute + 30 * minute,
+      subagentCount: 0,
+      label: "Worked for 30m · waited 24h 30m",
+    },
+    // A response still going keeps the plain time, subagents and all.
+    { elapsedMs: 70_000, waitedMs: null, subagentCount: 2, label: "Worked for 1m 10s" },
+    { elapsedMs: null, waitedMs: 5 * minute, subagentCount: 0, label: "Worked" },
+  ])("labels $label", ({ label, ...time }) => {
+    expect(workedForLabel(time)).toBe(label);
   });
 });
 

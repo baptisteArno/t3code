@@ -946,6 +946,215 @@ export function presentProviderGoal(
   };
 }
 
+/**
+ * Whether a wake from this source carries on the response before it. Work the agent started
+ * itself, its own monitors included, reports back into its response; a pull request watch or a
+ * system notice is news.
+ */
+export function notificationContinuesResponse(source: OrchestrationV2NotificationSource): boolean {
+  switch (source.kind) {
+    case "delegated_task":
+    case "subagent":
+    case "command":
+    case "background_task":
+      return true;
+    case "monitor":
+      return source.pullRequest === undefined;
+    case "system":
+      return false;
+    default:
+      source satisfies never;
+      return false;
+  }
+}
+
+/** The prompts (not steers) and notifications of a timeline, which start its runs. */
+export type ResponseBoundary =
+  | { readonly kind: "prompt"; readonly runId: RunId | null }
+  | {
+      readonly kind: "notification";
+      readonly runId: RunId | null;
+      readonly source: OrchestrationV2NotificationSource;
+    };
+
+/**
+ * A response is a prompt and the runs its continuing wakes start, which clients fold as one.
+ * Runs no boundary names are responses of their own.
+ */
+export interface ThreadResponses {
+  /** The first run of the response `runId` belongs to. */
+  readonly responseRunId: (runId: RunId) => RunId;
+  /** Whether a continuing wake started `runId`. */
+  readonly continuesResponse: (runId: RunId) => boolean;
+  /** Whether `runId` started last in its response, so its answer is the response's. */
+  readonly isLatestRun: (runId: RunId) => boolean;
+}
+
+export function deriveThreadResponses(boundaries: Iterable<ResponseBoundary>): ThreadResponses {
+  const continued = new Map<RunId, RunId>();
+  const latestRunByResponse = new Map<RunId, RunId>();
+  const started = new Set<RunId>();
+  let responseRunId: RunId | null = null;
+  for (const boundary of boundaries) {
+    const { runId } = boundary;
+    if (runId === null) {
+      responseRunId = null;
+      continue;
+    }
+    // Only a run's first input decides its response; later ones were delivered into it.
+    if (started.has(runId)) continue;
+    started.add(runId);
+    if (
+      boundary.kind === "notification" &&
+      responseRunId !== null &&
+      notificationContinuesResponse(boundary.source)
+    ) {
+      continued.set(runId, responseRunId);
+      latestRunByResponse.set(responseRunId, runId);
+      continue;
+    }
+    responseRunId = runId;
+  }
+  const responseOf = (runId: RunId) => continued.get(runId) ?? runId;
+  return {
+    responseRunId: responseOf,
+    continuesResponse: (runId) => continued.has(runId),
+    isLatestRun: (runId) => {
+      const response = responseOf(runId);
+      return (latestRunByResponse.get(response) ?? response) === runId;
+    },
+  };
+}
+
+/** When each started run started and, once settled, ended, in epoch milliseconds. */
+export type RunSpans = ReadonlyMap<
+  RunId,
+  { readonly startMs: number; readonly endMs: number | null }
+>;
+
+/** Returns `previous` when no run started or settled, so clients can compare spans by identity. */
+export function deriveRunSpans(
+  runs: ReadonlyArray<
+    Pick<OrchestrationV2ThreadProjection["runs"][number], "id" | "startedAt" | "completedAt">
+  >,
+  previous: RunSpans | null,
+): RunSpans {
+  const spans = new Map<RunId, { readonly startMs: number; readonly endMs: number | null }>();
+  for (const run of runs) {
+    if (run.startedAt === null) continue;
+    spans.set(run.id, {
+      startMs: DateTime.toEpochMillis(run.startedAt),
+      endMs: run.completedAt === null ? null : DateTime.toEpochMillis(run.completedAt),
+    });
+  }
+  const unchanged =
+    previous !== null &&
+    previous.size === spans.size &&
+    [...spans].every(([runId, span]) => {
+      const before = previous.get(runId);
+      return before?.startMs === span.startMs && before.endMs === span.endMs;
+    });
+  return unchanged ? previous : spans;
+}
+
+/** Each response's started runs, so a run whose entries a tool visibility setting hides still counts. */
+export function runIdsByResponse(
+  spans: RunSpans,
+  responses: Pick<ThreadResponses, "responseRunId">,
+): ReadonlyMap<RunId, ReadonlyArray<RunId>> {
+  const byResponse = new Map<RunId, RunId[]>();
+  for (const runId of spans.keys()) {
+    const response = responses.responseRunId(runId);
+    const runIds = byResponse.get(response);
+    if (runIds === undefined) byResponse.set(response, [runId]);
+    else runIds.push(runId);
+  }
+  return byResponse;
+}
+
+/**
+ * Time between a response's runs, while the agent had handed back and waited for a wake, up to
+ * `untilMs` where the label's time ends: a stopped wake kept in view after it adds none.
+ * Null while one of its runs is going or has no span, since a guess would pass work off as waiting.
+ */
+export function responseWaitedMs(
+  runIds: Iterable<RunId>,
+  spans: RunSpans,
+  untilMs: number,
+): number | null {
+  const intervals: Array<{ readonly startMs: number; readonly endMs: number }> = [];
+  for (const runId of new Set(runIds)) {
+    const span = spans.get(runId);
+    if (span === undefined || span.endMs === null) return null;
+    if (span.startMs < untilMs) {
+      intervals.push({ startMs: span.startMs, endMs: Math.min(span.endMs, untilMs) });
+    }
+  }
+  intervals.sort((left, right) => left.startMs - right.startMs);
+  let waitedMs = 0;
+  let coveredUntil: number | null = null;
+  for (const { startMs, endMs } of intervals) {
+    if (coveredUntil !== null && startMs > coveredUntil) waitedMs += startMs - coveredUntil;
+    coveredUntil = Math.max(coveredUntil ?? endMs, endMs);
+  }
+  return waitedMs;
+}
+
+// A summary has to fit one row beside the diff stat on a phone, so it counts whole minutes.
+function formatMinutes(ms: number, resolve: MFunctionType): string {
+  const minutes = Math.round(ms / 60_000);
+  const hours = Math.floor(minutes / 60);
+  if (hours === 0) return resolve(msg("{minutes}m", { minutes }));
+  return minutes % 60 === 0
+    ? resolve(msg("{hours}h", { hours }))
+    : resolve(msg("{hours}h {minutes}m", { hours, minutes: minutes % 60 }));
+}
+
+/**
+ * "Worked for 40m · waited 18m · 4 subagents", the parts after the time only when non-zero.
+ * Without `waitedMs`, while a run is still going or its span is unknown, the plain time.
+ */
+export function workedForLabel(
+  input: {
+    readonly elapsedMs: number | null;
+    readonly waitedMs: number | null;
+    readonly subagentCount: number;
+  },
+  resolve: MFunctionType = mFallback,
+): string {
+  const { elapsedMs } = input;
+  if (input.waitedMs === null) {
+    return elapsedMs === null
+      ? resolve(msg("Worked"))
+      : resolve(msg("Worked for {duration}", { duration: formatDuration(elapsedMs, resolve) }));
+  }
+  // Under a second is the handoff between runs, not waiting.
+  const waitedMs =
+    elapsedMs !== null && input.waitedMs >= 1_000 ? Math.min(input.waitedMs, elapsedMs) : 0;
+  const summarized = waitedMs > 0 || input.subagentCount > 0;
+  const duration = (ms: number) =>
+    summarized && ms >= 60_000 ? formatMinutes(ms, resolve) : formatDuration(ms, resolve);
+  const parts = [
+    elapsedMs === null
+      ? resolve(msg("Worked"))
+      : resolve(msg("Worked for {duration}", { duration: duration(elapsedMs - waitedMs) })),
+  ];
+  if (waitedMs > 0) {
+    parts.push(
+      resolve(
+        msg("waited {duration}", {
+          $context: "after Worked for, time the agent spent waiting to be woken",
+          duration: duration(waitedMs),
+        }),
+      ),
+    );
+  }
+  if (input.subagentCount > 0) {
+    parts.push(resolve(BACKGROUND_WORK_KINDS.subagent.count, { count: input.subagentCount }));
+  }
+  return parts.join(" · ");
+}
+
 export function notificationChildThreadId(
   source: OrchestrationV2NotificationSource,
 ): ThreadId | undefined {
