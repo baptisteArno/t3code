@@ -35,7 +35,8 @@ export interface ReviewRenderableHunkRow {
   readonly kind: "hunk";
   readonly id: string;
   readonly header: string;
-  readonly context: string | null;
+  /** Unchanged lines between the previous hunk, or the file start, and this one. */
+  readonly collapsedBefore: number;
 }
 
 export interface ReviewRenderableLineRow {
@@ -322,7 +323,7 @@ function buildRenderableRows(
       kind: "hunk",
       id: `${fileId}:hunk:${hunkIndex}`,
       header: fallbackHunkHeader(hunk),
-      context: hunk.hunkContext ? stripTrailingNewline(hunk.hunkContext) : null,
+      collapsedBefore: hunk.collapsedBefore,
     });
 
     let deletionLineNumber = hunk.deletionStart;
