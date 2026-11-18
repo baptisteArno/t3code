@@ -6,6 +6,12 @@ import {
   isLiveSubagentTurnItem,
   waitingOnSubagentsLabel,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import {
+  deriveThreadResponses,
+  notificationContinuesResponse,
+  type ResponseBoundary,
+  type ThreadResponses,
+} from "@t3tools/client-runtime/state/thread-execution";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
 import { claudeResumeCompactionAge } from "@t3tools/shared/claudeCompaction";
@@ -743,7 +749,10 @@ export function resolveAssistantMessageCopyState({
   };
 }
 
-function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<TimelineEntry>) {
+function deriveTerminalAssistantMessageIds(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  responses: ThreadResponses,
+) {
   const lastAssistantMessageIdByResponseKey = new Map<string, string>();
   let nullTurnResponseIndex = 0;
 
@@ -761,7 +770,7 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
     }
 
     const responseKey = message.runId
-      ? `turn:${message.runId}`
+      ? `turn:${responses.responseRunId(message.runId)}`
       : `unkeyed:${nullTurnResponseIndex}`;
     lastAssistantMessageIdByResponseKey.set(responseKey, message.id);
   }
@@ -791,14 +800,19 @@ interface SupersededAttemptFold {
 // Only an explicit final phase proves a reply cut short by steering was an answer.
 function retainedAssistantReplyEntryIds(
   timelineEntries: ReadonlyArray<TimelineEntry>,
+  responses: ThreadResponses,
 ): ReadonlySet<string> {
   const replyEntryIds = new Set<string>();
   const lastOutputByAttemptId = new Map<RunAttemptId, TimelineEntry>();
+  // A wake's answer replaces the one the run before it gave while it waited.
+  const answersResponse = (entry: Extract<TimelineEntry, { kind: "message" }>) =>
+    entry.message.runId == null || responses.isLatestRun(entry.message.runId);
   for (const entry of timelineEntries) {
     if (
       entry.kind === "message" &&
       entry.projectedItem?.item.type === "assistant_message" &&
-      entry.projectedItem.item.phase === "final_answer"
+      entry.projectedItem.item.phase === "final_answer" &&
+      answersResponse(entry)
     )
       replyEntryIds.add(entry.id);
 
@@ -831,6 +845,7 @@ function retainedAssistantReplyEntryIds(
     if (
       entry.kind === "message" &&
       !entry.message.streaming &&
+      answersResponse(entry) &&
       item?.type === "assistant_message" &&
       item.phase === undefined &&
       item.status === "completed" &&
@@ -971,10 +986,47 @@ function timelineEntryIsSteer(entry: TimelineEntry): boolean {
   );
 }
 
-export function timelineEntryStartsResponse(entry: TimelineEntry): boolean {
+export function timelineEntryStartsRun(entry: TimelineEntry): boolean {
   return (
     (entry.kind === "message" && entry.message.role === "user" && !timelineEntryIsSteer(entry)) ||
     (entry.kind === "work" && entry.entry.itemType === "notification")
+  );
+}
+
+function timelineNotificationSource(entry: TimelineEntry) {
+  const payload = entry.kind === "work" ? entry.entry.structuredPayload : undefined;
+  return payload?.type === "notification" ? payload.source : undefined;
+}
+
+function deriveTimelineResponses(timelineEntries: ReadonlyArray<TimelineEntry>): ThreadResponses {
+  // A window that starts mid-response lacks its prompt, so its first run stands in for it.
+  const firstBoundaryIndex = timelineEntries.findIndex(timelineEntryStartsRun);
+  const leadingRunId = timelineEntries
+    .slice(0, firstBoundaryIndex === -1 ? undefined : firstBoundaryIndex)
+    .map((entry) => timelineEntryFoldRunId(entry, null))
+    .find((runId) => runId !== null);
+  return deriveThreadResponses([
+    ...(leadingRunId === undefined ? [] : [{ kind: "prompt" as const, runId: leadingRunId }]),
+    ...timelineEntries.flatMap((entry): ResponseBoundary[] => {
+      if (!timelineEntryStartsRun(entry)) return [];
+      const runId = responseBoundaryRunId(entry);
+      const source = timelineNotificationSource(entry);
+      return source === undefined
+        ? [{ kind: "prompt", runId }]
+        : [{ kind: "notification", runId, source }];
+    }),
+  ]);
+}
+
+function timelineEntryStartsResponse(entry: TimelineEntry, responses: ThreadResponses): boolean {
+  if (!timelineEntryStartsRun(entry)) return false;
+  const source = timelineNotificationSource(entry);
+  const runId = entry.kind === "work" ? entry.entry.runId : null;
+  return (
+    source === undefined ||
+    runId == null ||
+    !notificationContinuesResponse(source) ||
+    !responses.continuesResponse(runId)
   );
 }
 
@@ -994,11 +1046,12 @@ function responseBoundaryRunId(entry: TimelineEntry): RunId | null {
 
 // Group promptless restarts under the initiating prompt until settled.
 function lastResponseBoundaryIndex(timelineEntries: ReadonlyArray<TimelineEntry>): number {
-  return timelineEntries.findLastIndex(timelineEntryStartsResponse);
+  return timelineEntries.findLastIndex(timelineEntryStartsRun);
 }
 
 function deriveActiveVisualResponseRunIds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
+  responses: ThreadResponses;
   unsettledRunId: RunId | null;
   isWorking: boolean;
 }): ReadonlySet<RunId> {
@@ -1019,7 +1072,11 @@ function deriveActiveVisualResponseRunIds(input: {
     index += 1
   ) {
     const runId = timelineEntryRunId(input.timelineEntries[index]!);
-    if (runId !== null) {
+    // Late entries from the wake's own settled runs stay in its response's fold.
+    if (
+      runId !== null &&
+      input.responses.responseRunId(runId) !== input.responses.responseRunId(input.unsettledRunId)
+    ) {
       runIds.add(runId);
     }
   }
@@ -1071,6 +1128,7 @@ function itemizedFailedRunIds(
 
 function deriveTurnFolds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
+  responses: ThreadResponses;
   terminalAssistantMessageIds: ReadonlySet<string>;
   latestRun: TimelineLatestRun | null;
   unfoldedRunIds: ReadonlySet<RunId>;
@@ -1079,10 +1137,11 @@ function deriveTurnFolds(input: {
   retainedAssistantReplyEntryIds: ReadonlySet<string>;
   resolve: MessageResolver;
 }): ReadonlyMap<string, TurnFold> {
+  const { responseRunId } = input.responses;
   const interruptedRunIds = new Set<RunId>();
   const promptIndexByRunId = new Map<RunId, number>();
   for (const [index, entry] of input.timelineEntries.entries()) {
-    if (timelineEntryStartsResponse(entry)) {
+    if (timelineEntryStartsResponse(entry, input.responses)) {
       const runId = responseBoundaryRunId(entry);
       if (runId !== null && !promptIndexByRunId.has(runId)) promptIndexByRunId.set(runId, index);
     }
@@ -1098,8 +1157,9 @@ function deriveTurnFolds(input: {
 
   interface TurnGroup {
     entries: Array<TimelineEntry>;
+    /** The run each entry belongs to; a response's wakes add runs after its first. */
+    entryRunIds: Array<RunId>;
     terminalEntry: Extract<TimelineEntry, { kind: "message" }> | null;
-    hasStreamingMessage: boolean;
     // Entry timestamps omit startup and can collapse steered turns to an instant.
     startBoundary: string | null;
     anchorEntryId: string;
@@ -1111,13 +1171,14 @@ function deriveTurnFolds(input: {
   }
   const groupsByRunId = new Map<RunId, TurnGroup>();
   const runlessFailedKeys = new Set<RunId>();
+  const streamingRunIds = new Set<RunId>();
 
   // Key runless responses per prompt to prevent V2 runs unfolding imported turns.
   let runlessKey: RunId | null = null;
   let responseKey: RunId | null = null;
   let pendingBoundary: { createdAt: string; anchorEntryId: string } | null = null;
   for (const [index, entry] of input.timelineEntries.entries()) {
-    if (timelineEntryStartsResponse(entry)) {
+    if (timelineEntryStartsResponse(entry, input.responses)) {
       const nextEntry = input.timelineEntries[index + 1];
       pendingBoundary = nextEntry
         ? { createdAt: entry.createdAt, anchorEntryId: nextEntry.id }
@@ -1129,7 +1190,7 @@ function deriveTurnFolds(input: {
     }
     if (entry.kind === "message" && timelineEntryIsSteer(entry)) {
       const steerRunId = entry.message.runId ?? responseKey;
-      const group = steerRunId === null ? undefined : groupsByRunId.get(steerRunId);
+      const group = steerRunId === null ? undefined : groupsByRunId.get(responseRunId(steerRunId));
       if (group !== undefined && group.entries.length > 0) {
         // Back-to-back steers split once, after the last of them.
         if (group.steerSegments.at(-1)?.startIndex === group.entries.length) {
@@ -1144,10 +1205,12 @@ function deriveTurnFolds(input: {
       continue;
     }
     // Resumed subagents keep their position and fold with their original turn.
+    const ownResponseRunId = responseRunId(ownRunId);
     const runId =
-      responseKey !== null && (promptIndexByRunId.get(ownRunId) ?? -1) > index
+      responseKey !== null && (promptIndexByRunId.get(ownResponseRunId) ?? -1) > index
         ? responseKey
-        : ownRunId;
+        : ownResponseRunId;
+    const memberRunId = runId === ownResponseRunId ? ownRunId : runId;
     if (runId === runlessKey && timelineEntryFailedItem(entry) !== null) {
       runlessFailedKeys.add(runId);
     }
@@ -1155,8 +1218,8 @@ function deriveTurnFolds(input: {
     if (!group) {
       group = {
         entries: [],
+        entryRunIds: [],
         terminalEntry: null,
-        hasStreamingMessage: false,
         startBoundary: pendingBoundary?.createdAt ?? null,
         anchorEntryId: pendingBoundary?.anchorEntryId ?? entry.id,
         steerSegments: [],
@@ -1165,29 +1228,39 @@ function deriveTurnFolds(input: {
       groupsByRunId.set(runId, group);
     }
     group.entries.push(entry);
+    group.entryRunIds.push(memberRunId);
     if (entry.kind === "message") {
       if (input.terminalAssistantMessageIds.has(entry.message.id)) {
         group.terminalEntry = entry;
       }
       if (entry.message.streaming) {
-        group.hasStreamingMessage = true;
+        streamingRunIds.add(memberRunId);
       }
     }
   }
+  const runStaysOpen = (runId: RunId) =>
+    input.unfoldedRunIds.has(runId) ||
+    interruptedRunIds.has(runId) ||
+    runlessFailedKeys.has(runId) ||
+    (input.runlessWorkActive && runId === runlessKey) ||
+    streamingRunIds.has(runId);
+  // A stopped run alone folds under "You stopped"; a stopped wake stays in view after the rest.
+  const stoppedLatestRunId =
+    input.latestRun?.status === "interrupted" ? input.latestRun.runId : null;
 
   const foldsByAnchorEntryId = new Map<string, TurnFold>();
   for (const [runId, group] of groupsByRunId) {
-    if (
-      input.unfoldedRunIds.has(runId) ||
-      interruptedRunIds.has(runId) ||
-      runlessFailedKeys.has(runId) ||
-      (input.runlessWorkActive && runId === runlessKey)
-    ) {
-      continue;
-    }
-    if (group.hasStreamingMessage) {
-      continue;
-    }
+    const entryStaysOpen = group.entryRunIds.map(
+      (memberRunId) =>
+        runStaysOpen(memberRunId) || (memberRunId !== runId && memberRunId === stoppedLatestRunId),
+    );
+    const settledEnd = (from: number, to: number) =>
+      group.entries
+        .slice(from, to)
+        .flatMap((entry, offset) =>
+          entryStaysOpen[from + offset] ? [] : [timelineEntryEnd(entry)],
+        )
+        .reduce<string | null>(maxIsoTimestamp, null);
     const hiddenEntryIds = new Set<string>();
     const terminalEntryIndex = group.terminalEntry
       ? group.entries.findIndex((entry) => entry.id === group.terminalEntry?.id)
@@ -1195,7 +1268,7 @@ function deriveTurnFolds(input: {
     // Folded dividers lose their place in the turn, so only the latest stays visible.
     const visibleCompactionId = group.entries.findLast(timelineEntryIsCompaction)?.id;
     for (const [index, entry] of group.entries.entries()) {
-      if (entry.id === group.terminalEntry?.id) {
+      if (entry.id === group.terminalEntry?.id || entryStaysOpen[index]) {
         continue;
       }
       const isCompaction = timelineEntryIsCompaction(entry);
@@ -1214,7 +1287,6 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
-      if (entry.kind === "work" && entry.entry.itemType === "notification") continue;
       if (entry.kind === "work" && entry.entry.questionAnswer !== undefined) continue;
       hiddenEntryIds.add(entry.id);
     }
@@ -1228,22 +1300,39 @@ function deriveTurnFolds(input: {
     }
 
     const firstEntry = group.entries[0];
-    const lastEntry = group.entries.at(-1);
+    // Timing reads only settled runs, so a wake still streaming leaves the label alone.
+    const lastEntry = group.entries.findLast((_, index) => !entryStaysOpen[index]);
     if (!firstEntry || !lastEntry) {
       continue;
     }
+    const singleRun = group.entryRunIds.every((memberRunId) => memberRunId === runId);
+    const terminalEnd =
+      group.terminalEntry !== null && !entryStaysOpen[group.entries.indexOf(group.terminalEntry)]
+        ? group.terminalEntry.message.updatedAt
+        : null;
+    // The latest run's own end covers its checkpoint after the last entry.
+    const latestRunEnd =
+      input.latestRun?.completedAt != null &&
+      group.entryRunIds.some(
+        (memberRunId, index) => memberRunId === input.latestRun?.runId && !entryStaysOpen[index],
+      )
+        ? input.latestRun.completedAt
+        : null;
 
     const isLatestInterruptedTurn =
-      input.latestRun?.runId === runId && input.latestRun.status === "interrupted";
+      singleRun && input.latestRun?.runId === runId && input.latestRun.status === "interrupted";
     // A turn cut short by a steer leaves trailing work entries behind its
     // terminal message — take whichever ended last.
     const lastEntryEnd = timelineEntryEnd(lastEntry);
     const elapsedMs =
-      input.latestRun?.runId === runId && input.latestRun.startedAt && input.latestRun.completedAt
+      singleRun &&
+      input.latestRun?.runId === runId &&
+      input.latestRun.startedAt &&
+      input.latestRun.completedAt
         ? computeElapsedMs(input.latestRun.startedAt, input.latestRun.completedAt)
         : computeElapsedMs(
             group.startBoundary ?? firstEntry.createdAt,
-            maxIsoTimestamp(group.terminalEntry?.message.updatedAt ?? null, lastEntryEnd) ??
+            [terminalEnd, latestRunEnd].reduce<string | null>(maxIsoTimestamp, lastEntryEnd) ??
               lastEntryEnd,
           );
     const { resolve } = input;
@@ -1271,13 +1360,13 @@ function deriveTurnFolds(input: {
       label,
     });
     for (const [index, { startIndex, steer }] of group.steerSegments.entries()) {
-      const entries = group.entries.slice(startIndex, group.steerSegments[index + 1]?.startIndex);
+      const endIndex = group.steerSegments[index + 1]?.startIndex;
+      const entries = group.entries.slice(startIndex, endIndex);
       const anchorEntry = entries[0];
       if (anchorEntry === undefined || !hidesNonCompactionWork(entries)) continue;
       const segmentMs = computeElapsedMs(
         steer.createdAt,
-        entries.map(timelineEntryEnd).reduce<string | null>(maxIsoTimestamp, null) ??
-          steer.createdAt,
+        settledEnd(startIndex, endIndex ?? group.entries.length) ?? steer.createdAt,
       );
       foldsByAnchorEntryId.set(anchorEntry.id, {
         runId: RunId.make(`${runId}:steer:${steer.id}`),
@@ -1299,6 +1388,7 @@ function deriveTurnFolds(input: {
 
 function attachTrailingToolGroupsToAssistant(
   rows: ReadonlyArray<MessagesTimelineRow>,
+  responses: ThreadResponses,
 ): MessagesTimelineRow[] {
   const messageRowsWithoutMeta = new Set<string>();
   const metaRowsAfterIndex = new Map<
@@ -1329,10 +1419,12 @@ function attachTrailingToolGroupsToAssistant(
         lastTrailingWorkIndex = index;
         continue;
       }
+      const summaryRunId = candidate.kind === "event" ? candidate.projectedItem.item.runId : null;
       if (
         candidate.kind === "event" &&
         candidate.resourceSummary &&
-        candidate.projectedItem.item.runId === runId
+        summaryRunId !== null &&
+        responses.responseRunId(summaryRunId) === responses.responseRunId(runId)
       ) {
         hasTrailingToolGroup = true;
         lastTrailingWorkIndex = index;
@@ -1454,14 +1546,17 @@ function workShownAsFinalAnswerOnly(
       pendingApprovalRequestIds?.has(item.requestId) === true) ||
     work.questionAnswer !== undefined ||
     timelineEntryIsCompaction(entry) ||
-    timelineEntryStartsResponse(entry) ||
+    timelineEntryStartsRun(entry) ||
     work.tone === "error" ||
     work.sourceActivityKind === "runtime.error" ||
     (work.itemType === "error" && work.toolLifecycleStatus !== "completed")
   );
 }
 
-function deriveInFlightSteerAnswerIds(entries: ReadonlyArray<TimelineEntry>): ReadonlySet<string> {
+function deriveInFlightSteerAnswerIds(
+  entries: ReadonlyArray<TimelineEntry>,
+  responses: ThreadResponses,
+): ReadonlySet<string> {
   const ids = new Set<string>();
   let awaitingReply = false;
   let candidate: string | null = null;
@@ -1475,7 +1570,8 @@ function deriveInFlightSteerAnswerIds(entries: ReadonlyArray<TimelineEntry>): Re
     } else if (entry.kind === "message" && entry.message.role === "user") {
       awaitingReply = false;
     } else if (reply !== null && awaitingReply) {
-      candidate = reply.message.id;
+      const { runId } = reply.message;
+      if (runId == null || responses.isLatestRun(runId)) candidate = reply.message.id;
       awaitingReply = false;
     }
   }
@@ -1532,9 +1628,10 @@ function timelineRowEntries(
       ? deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null)
       : null;
     const answeringFrom = answering ? lastResponseBoundaryIndex(entries) + 1 : entries.length;
-    const terminalIds = deriveTerminalAssistantMessageIds(entries);
-    const steerAnswerIds = deriveInFlightSteerAnswerIds(entries);
-    const retainedReplyIds = retainedAssistantReplyEntryIds(entries);
+    const responses = deriveTimelineResponses(entries);
+    const terminalIds = deriveTerminalAssistantMessageIds(entries, responses);
+    const steerAnswerIds = deriveInFlightSteerAnswerIds(entries, responses);
+    const retainedReplyIds = retainedAssistantReplyEntryIds(entries, responses);
     shown = entries.filter((entry, index) => {
       if (entry.kind !== "message") {
         return workShownAsFinalAnswerOnly(entry, input.pendingApprovalRequestIds);
@@ -1573,21 +1670,24 @@ function deriveTimelineTurnFolds(
 ) {
   if (input.toolCallVisibility === "zen") return new Map<string, TurnFold>();
   const timelineEntries = timelineRowEntries(input);
+  const responses = deriveTimelineResponses(timelineEntries);
   const unsettledRunId = deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null);
   const failedRunIds = failedTimelineRunIds(timelineEntries, input.latestRun ?? null);
   const activeVisualResponseRunIds = deriveActiveVisualResponseRunIds({
+    responses,
     timelineEntries,
     unsettledRunId,
     isWorking: input.isWorking,
   });
   return deriveTurnFolds({
     timelineEntries,
-    terminalAssistantMessageIds: deriveTerminalAssistantMessageIds(timelineEntries),
+    responses,
+    terminalAssistantMessageIds: deriveTerminalAssistantMessageIds(timelineEntries, responses),
     latestRun: input.latestRun ?? null,
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive: input.isWorking && input.runlessWorkActive === true,
     liveSubagentEntryIds: liveSubagentCardEntryIds(timelineEntries),
-    retainedAssistantReplyEntryIds: retainedAssistantReplyEntryIds(timelineEntries),
+    retainedAssistantReplyEntryIds: retainedAssistantReplyEntryIds(timelineEntries, responses),
     resolve: m,
   });
 }
@@ -1646,11 +1746,12 @@ export function deriveMessagesTimelineRows(
       })
     : new Map<MessageId, number>();
   const nextRows: MessagesTimelineRow[] = [];
-  const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineEntries);
+  const responses = deriveTimelineResponses(timelineEntries);
+  const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineEntries, responses);
   const failedRunIds = failedTimelineRunIds(timelineEntries, input.latestRun ?? null);
   const itemizedRunIds = itemizedFailedRunIds(timelineEntries, failedRunIds);
   const liveSubagentEntryIds = liveSubagentCardEntryIds(timelineEntries);
-  const retainedAssistantReplyIds = retainedAssistantReplyEntryIds(timelineEntries);
+  const retainedAssistantReplyIds = retainedAssistantReplyEntryIds(timelineEntries, responses);
   const supersededFoldsByAnchorEntryId = deriveSupersededAttemptFolds(
     timelineEntries,
     failedRunIds,
@@ -1661,6 +1762,7 @@ export function deriveMessagesTimelineRows(
     [...supersededFoldsByAnchorEntryId.values()].flatMap((fold) => fold.deferredWorkItemIds),
   );
   const activeVisualResponseRunIds = deriveActiveVisualResponseRunIds({
+    responses,
     timelineEntries: timelineEntries,
     unsettledRunId,
     isWorking: input.isWorking,
@@ -1671,6 +1773,7 @@ export function deriveMessagesTimelineRows(
       ? new Map<string, TurnFold>()
       : deriveTurnFolds({
           timelineEntries: timelineEntries,
+          responses,
           terminalAssistantMessageIds,
           latestRun: input.latestRun ?? null,
           unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
@@ -1724,6 +1827,16 @@ export function deriveMessagesTimelineRows(
     let tailAttemptId: string | null | undefined;
     for (let index = timelineEntries.length - 1; index >= activeTurnHeaderIndex; index -= 1) {
       const entry = timelineEntries[index]!;
+      // Folded late output of the response's earlier runs sits outside the live work.
+      const foldRunId = timelineEntryFoldRunId(entry, null);
+      if (
+        collapsedEntryIds.has(entry.id) &&
+        unsettledRunId !== null &&
+        foldRunId !== null &&
+        responses.responseRunId(foldRunId) === responses.responseRunId(unsettledRunId)
+      ) {
+        continue;
+      }
       if (
         entry.kind !== "work" ||
         entry.entry.tone === "error" ||
@@ -2404,7 +2517,8 @@ export function deriveMessagesTimelineRows(
   }
 
   const result = attachTrailingToolGroupsToAssistant(
-    attachCreatedThreadSummaries(nextRows, timelineEntries, collapsedFoldMemberIds),
+    attachCreatedThreadSummaries(nextRows, timelineEntries, collapsedFoldMemberIds, responses),
+    responses,
   );
   return result.map((row, index) => {
     if (timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1])) {
@@ -2449,12 +2563,13 @@ function attachCreatedThreadSummaries(
   rows: MessagesTimelineRow[],
   timelineEntries: ReadonlyArray<TimelineEntry>,
   collapsedFoldMemberIds: ReadonlySet<string>,
+  { responseRunId }: ThreadResponses,
 ): MessagesTimelineRow[] {
   const terminalIndexes = new Map<RunId, number>();
   const createdByRun = new Map<RunId, Array<Extract<MessagesTimelineRow, { kind: "event" }>>>();
   for (const [index, row] of rows.entries()) {
     if (row.kind === "message" && row.showAssistantMeta && row.message.runId) {
-      terminalIndexes.set(row.message.runId, index);
+      terminalIndexes.set(responseRunId(row.message.runId), index);
     }
   }
   for (const entry of timelineEntries) {
@@ -2465,7 +2580,7 @@ function attachCreatedThreadSummaries(
           ? entry.projectedItem
           : undefined;
     if (projectedItem?.item.type === "thread_created" && projectedItem.item.runId) {
-      const runId = projectedItem.item.runId;
+      const runId = responseRunId(projectedItem.item.runId);
       const entries = createdByRun.get(runId) ?? [];
       entries.push({ kind: "event", id: entry.id, createdAt: entry.createdAt, projectedItem });
       createdByRun.set(runId, entries);
@@ -2474,7 +2589,7 @@ function attachCreatedThreadSummaries(
   return rows.flatMap((row, index): MessagesTimelineRow[] => {
     if (row.kind === "event" && row.projectedItem.item.type === "thread_created") {
       const runId = row.projectedItem.item.runId;
-      const terminalIndex = runId === null ? undefined : terminalIndexes.get(runId);
+      const terminalIndex = runId === null ? undefined : terminalIndexes.get(responseRunId(runId));
       if (
         terminalIndex !== undefined &&
         (collapsedFoldMemberIds.has(row.id) || index > terminalIndex)
@@ -2484,7 +2599,7 @@ function attachCreatedThreadSummaries(
     if (row.kind === "message" && row.showAssistantMeta && row.message.runId) {
       return [
         row,
-        ...(createdByRun.get(row.message.runId) ?? []).map((entry) => ({
+        ...(createdByRun.get(responseRunId(row.message.runId)) ?? []).map((entry) => ({
           ...entry,
           id: `summary:${entry.id}`,
           resourceSummary: true,

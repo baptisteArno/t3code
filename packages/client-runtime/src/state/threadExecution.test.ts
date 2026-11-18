@@ -12,6 +12,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   type OrchestrationV2ExecutionNode,
+  type OrchestrationV2NotificationSource,
   type OrchestrationV2RunStatus,
   type OrchestrationV2RuntimeRequest,
 } from "@t3tools/contracts";
@@ -23,6 +24,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { v2Projection } from "./orchestrationV2TestFixtures.ts";
 import {
   canResumeThread,
+  deriveThreadResponses,
   deriveReportedModelSelection,
   deriveLatestThreadRun,
   deriveProviderSubagentStatus,
@@ -445,6 +447,81 @@ describe("thread execution presentation", () => {
       activeRunId: null,
     });
     expect(threadRuntimeHasInterruptibleRun(runtime)).toBe(false);
+  });
+});
+
+describe("deriveThreadResponses", () => {
+  const prompt = (runId: string | null) =>
+    ({ kind: "prompt", runId: runId === null ? null : RunId.make(runId) }) as const;
+  const wake = (runId: string, source: OrchestrationV2NotificationSource) =>
+    ({ kind: "notification", runId: RunId.make(runId), source }) as const;
+  const command = { kind: "command" } as const;
+  const pullRequest = {
+    kind: "monitor",
+    pullRequest: { threadId: ThreadId.make("thread"), number: 1 } as never,
+  } as const;
+  const responsesOf = (boundaries: Parameters<typeof deriveThreadResponses>[0]) => {
+    const responses = deriveThreadResponses(boundaries);
+    const runs = [
+      ...new Set([...boundaries].flatMap(({ runId }) => (runId === null ? [] : [runId]))),
+    ];
+    return {
+      response: Object.fromEntries(runs.map((run) => [run, responses.responseRunId(run)])),
+      latest: runs.filter(responses.isLatestRun),
+    };
+  };
+
+  it.each([
+    {
+      name: "work the agent started carries its response on, chained to the first run",
+      boundaries: [
+        prompt("r1"),
+        wake("r2", { kind: "delegated_task", taskIds: [] }),
+        wake("r3", command),
+        wake("r4", { kind: "monitor" }),
+      ],
+      response: { r1: "r1", r2: "r1", r3: "r1", r4: "r1" },
+      latest: ["r4"],
+    },
+    {
+      name: "a pull request watch or system notice starts its own response",
+      boundaries: [
+        prompt("r1"),
+        wake("r2", pullRequest),
+        wake("r3", command),
+        wake("r4", { kind: "system" }),
+      ],
+      response: { r1: "r1", r2: "r2", r3: "r2", r4: "r4" },
+      latest: ["r1", "r3", "r4"],
+    },
+    {
+      name: "a prompt starts a new response, and a wake with nothing before it stands alone",
+      boundaries: [
+        wake("r1", command),
+        prompt(null),
+        wake("r2", command),
+        prompt("r3"),
+        wake("r4", command),
+      ],
+      response: { r1: "r1", r2: "r2", r3: "r3", r4: "r3" },
+      latest: ["r1", "r2", "r4"],
+    },
+    {
+      name: "a run keeps the response of its first input",
+      boundaries: [
+        prompt("r1"),
+        wake("r2", command),
+        wake("r2", pullRequest),
+        wake("r3", command),
+        prompt("r4"),
+        wake("r1", command),
+        wake("r5", command),
+      ],
+      response: { r1: "r1", r2: "r1", r3: "r1", r4: "r4", r5: "r4" },
+      latest: ["r3", "r5"],
+    },
+  ])("$name", ({ boundaries, response, latest }) => {
+    expect(responsesOf(boundaries)).toEqual({ response, latest });
   });
 });
 
