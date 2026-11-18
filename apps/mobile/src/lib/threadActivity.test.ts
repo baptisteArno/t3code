@@ -15,6 +15,7 @@ import {
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
 import { summarizeToolGroup } from "@t3tools/client-runtime/work-log/presentation";
+import { deriveRunSpans } from "@t3tools/client-runtime/state/thread-execution";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -863,6 +864,72 @@ describe("buildThreadFeed", () => {
     expect(
       messageFoldRunId(buildThreadFeed([projected(userMessage(), 0)]), "message-user", []),
     ).toBe(null);
+
+    // A delegate reporting back starts a wake run that carries the prompt's response on: the
+    // message the first run ended on while it waited folds with the rest once the wake ends.
+    const wakeRunId = RunId.make("run-wake");
+    const wakeItems = [
+      projected(userMessage(), 0),
+      projected(command(), 1),
+      projected(middle, 2),
+      projected(
+        {
+          ...base("item-wake", "2026-06-20T00:00:04.000Z", 3),
+          runId: wakeRunId,
+          type: "notification",
+          source: { kind: "delegated_task", taskIds: [] },
+          outcome: "completed",
+          summary: "Review finished",
+        },
+        3,
+      ),
+    ];
+    const waking = deriveThreadFeedPresentation(
+      buildThreadFeed(wakeItems),
+      {
+        runId: wakeRunId,
+        status: "running",
+        startedAt: "2026-06-20T00:00:04.000Z",
+        completedAt: null,
+      },
+      new Set(),
+      new Set(),
+      "2026-06-20T00:00:04.000Z",
+    );
+    expect(waking.map((entry) => entry.id)).toEqual([
+      "message-user",
+      `run-fold:${runId}`,
+      "message-middle",
+      `run-fold:${wakeRunId}`,
+      "local:thread-1:item-wake",
+      "live-activity-row",
+    ]);
+    const wakeFeed = buildThreadFeed([
+      ...wakeItems,
+      projected({ ...assistantMessage("2026-06-20T00:00:05.000Z"), runId: wakeRunId }, 4),
+    ]);
+    const wakeRows = deriveThreadFeedPresentation(wakeFeed, null, new Set());
+    expect(wakeRows.map((entry) => entry.id)).toEqual([
+      "message-user",
+      `run-fold:${runId}`,
+      "message-assistant",
+    ]);
+    expect(wakeRows[1]).toMatchObject({ label: "Worked for 4s" });
+    expect(messageFoldRunId(wakeFeed, "message-middle", wakeRows)).toBe(runId);
+    // The second between the first run and its wake was spent waiting.
+    const span = (id: RunId, from: number, to: number) => ({
+      id,
+      startedAt: DateTime.makeUnsafe(`2026-06-20T00:00:0${from}.000Z`),
+      completedAt: DateTime.makeUnsafe(`2026-06-20T00:00:0${to}.000Z`),
+    });
+    const runSpans = deriveRunSpans([span(runId, 1, 3), span(wakeRunId, 4, 5)], null);
+    expect(
+      deriveThreadFeedPresentation(wakeFeed, null, new Set(), new Set(), null, false, undefined, {
+        toolCallVisibility: "showAll",
+        revealedMessageId: null,
+        runSpans,
+      })[1],
+    ).toMatchObject({ label: "Worked for 3s · waited 1s" });
   });
 
   it("folds progress messages while keeping the final assistant answer visible", () => {
