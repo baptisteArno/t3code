@@ -897,7 +897,7 @@ export const RootStack = RootStackConfig.with(function AdaptiveRootStack({ Navig
   return (
     <Navigator
       screenLayout={(props) => <GuardedScreenLayout {...props} />}
-      screenOptions={({ route, navigation }) => {
+      screenOptions={({ route, navigation, theme }) => {
         const title =
           route.name === "Home"
             ? getCompactBrandHeaderOptions(undefined, resolve).title
@@ -906,6 +906,9 @@ export const RootStack = RootStackConfig.with(function AdaptiveRootStack({ Navig
               : resolve(ROUTE_TITLES[route.name]);
         return {
           ...(title === undefined ? {} : { title }),
+          // iOS asks screens for the status bar style, and react-native-screens' default "auto"
+          // follows the system appearance instead of a theme mode forced in Appearance settings.
+          ...(Platform.OS === "ios" ? { statusBarStyle: theme.dark ? "light" : "dark" } : {}),
           ...(Platform.OS === "android"
             ? {
                 animation: androidWorkspaceDestinationAnimation(
