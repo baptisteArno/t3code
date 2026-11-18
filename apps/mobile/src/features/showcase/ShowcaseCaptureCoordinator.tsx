@@ -106,7 +106,7 @@ function showcaseNavigationAction(
     case "terminal":
       return CommonActions.navigate("ThreadTerminal", { ...params, terminalId: "term-1" });
     case "review":
-      return CommonActions.navigate("ThreadReview", params);
+      return CommonActions.navigate("ThreadReview", { ...params, view: "diff" });
     case "thread":
       return selectWorkspaceDetail({ name: "Thread", params });
   }
