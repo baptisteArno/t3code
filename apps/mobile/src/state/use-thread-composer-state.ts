@@ -20,9 +20,11 @@ import {
   deriveResumableRunId,
   deriveLatestThreadRun,
   deriveRunlessWorkStartedAt,
+  deriveRunSpans,
   deriveThreadActivityRun,
   deriveThreadRuntime,
   threadRuntimeHasInterruptibleRun,
+  type RunSpans,
 } from "@t3tools/client-runtime/state/thread-execution";
 import { useEffect, useRef, useState } from "react";
 
@@ -33,6 +35,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type EnvironmentId,
   type ModelSelection,
+  type OrchestrationV2Run,
   type RuntimeMode,
   type ScopedThreadRef,
   type ThreadId,
@@ -153,6 +156,7 @@ function setKeepFullHistory(threadKey: string, keep: boolean) {
   appAtomRegistry.set(fullHistoryThreadKeysAtom, keep ? { ...rest, [threadKey]: true } : rest);
 }
 
+const EMPTY_RUNS: ReadonlyArray<OrchestrationV2Run> = [];
 const EMPTY_THREAD_SEQUENCE_ATOM = Atom.make(0);
 
 export function appendReviewCommentToDraft(input: {
@@ -367,6 +371,17 @@ export function useThreadComposerState(input: {
   const selectedThreadActivityRun = selectedThreadProjection
     ? deriveThreadActivityRun(selectedThreadProjection.projection, serverConfig?.providers)
     : (selectedThreadShell?.latestRun ?? null);
+  // Run timestamps change per stream event; the spans change only when a run starts or settles.
+  const [runSpansState, setRunSpansState] = useState<{
+    readonly source: ReadonlyArray<OrchestrationV2Run> | null;
+    readonly value: RunSpans | null;
+  }>({ source: null, value: null });
+  const runs = selectedThreadProjection?.projection.runs ?? EMPTY_RUNS;
+  let selectedThreadRunSpans = runSpansState.value;
+  if (runSpansState.source !== runs || selectedThreadRunSpans === null) {
+    selectedThreadRunSpans = deriveRunSpans(runs, runSpansState.value);
+    setRunSpansState({ source: runs, value: selectedThreadRunSpans });
+  }
   const selectedThreadAnnouncedRun = announcedRun(
     selectedThreadActivityRun,
     selectedThreadProjection?.projection.runs ?? [],
@@ -1044,6 +1059,7 @@ export function useThreadComposerState(input: {
     feedbackSubmissions,
     dismissFeedback,
     selectedThreadFeed,
+    selectedThreadRunSpans,
     selectedThreadActivityRun,
     selectedThreadAnnouncedRun,
     selectedThreadDetailBehindShell,

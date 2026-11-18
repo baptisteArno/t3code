@@ -1,3 +1,5 @@
+import { deriveRunSpans, type RunSpans } from "@t3tools/client-runtime/state/thread-execution";
+import type { OrchestrationV2Run } from "@t3tools/contracts";
 import { useLocale, useMessages } from "gt-react";
 import { useState } from "react";
 import {
@@ -33,6 +35,20 @@ export function useStableHandoffRuns(
           modelSelection: run.modelSelection,
         }));
   setState({ source: runs, signature, value });
+  return value;
+}
+
+/** Run timestamps change per stream event; the spans change only when a run starts or settles. */
+export function useRunSpans(
+  runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "startedAt" | "completedAt">>,
+): RunSpans {
+  const [state, setState] = useState<{
+    readonly source: typeof runs | null;
+    readonly value: RunSpans | null;
+  }>({ source: null, value: null });
+  if (state.source === runs && state.value !== null) return state.value;
+  const value = deriveRunSpans(runs, state.value);
+  setState({ source: runs, value });
   return value;
 }
 
