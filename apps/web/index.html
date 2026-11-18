@@ -122,6 +122,20 @@
               chrome: "oklch(0.225975 0.031062 293.741)",
             },
           },
+          catppuccin: {
+            light: {
+              background: "#eff1f5",
+              foreground: "#4c4f69",
+              accent: "#8839ef",
+              chrome: "#eff1f5",
+            },
+            dark: {
+              background: "#24273a",
+              foreground: "#cad3f5",
+              accent: "#c6a0f6",
+              chrome: "#24273a",
+            },
+          },
         };
         const BUILT_IN_THEME_MODES = Object.fromEntries(
           Object.entries(BUILT_IN_THEME_PALETTES).map(([id, palettes]) => [
@@ -138,6 +152,7 @@
           "ocean",
           "ember",
           "iris",
+          "catppuccin",
           "t3-chat-dark",
           "t3-grove",
           "t3-ocean",
