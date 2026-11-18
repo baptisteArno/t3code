@@ -183,7 +183,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useEnvironmentScopeDenied } from "../../state/session";
 import type { PendingUserInputDraftAnswer } from "@t3tools/client-runtime/state/pending-user-input";
-import type { RunStopPresentation } from "@t3tools/client-runtime/state/thread-execution";
+import type { RunSpans, RunStopPresentation } from "@t3tools/client-runtime/state/thread-execution";
 import type {
   PendingApproval,
   PendingUserInput,
@@ -260,6 +260,7 @@ export interface ThreadDetailScreenProps {
   readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
   readonly onDismissFeedback: (id: MessageId) => void;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
+  readonly selectedThreadRunSpans?: RunSpans;
   readonly pendingHandoff?: HandoffEndpoints | null;
   readonly activityRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
@@ -1597,6 +1598,7 @@ function ThreadDetailBody(
                     detailRef={props.selectedThreadDetailRef}
                     workspaceRoot={props.threadCwd}
                     feed={props.selectedThreadFeed}
+                    runSpans={props.selectedThreadRunSpans}
                     pendingHandoff={props.pendingHandoff}
                     statusLines={statusLines}
                     worktreeSetup={props.worktreeSetup}
