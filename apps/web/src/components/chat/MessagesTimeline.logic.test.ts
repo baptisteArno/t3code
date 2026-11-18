@@ -8,6 +8,7 @@ import {
   RunAttemptId,
   TurnItemId,
   RuntimeRequestId,
+  type OrchestrationV2NotificationSource,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
@@ -3055,6 +3056,7 @@ describe("v2 run and attempt history", () => {
       role: "user" | "assistant",
       second: number,
       inputIntent?: "steer",
+      run: RunId | null = role === "user" ? null : runId,
     ): TimelineEntry => ({
       id,
       kind: "message",
@@ -3063,7 +3065,7 @@ describe("v2 run and attempt history", () => {
         id: MessageId.make(id),
         role,
         text: id,
-        runId: role === "user" ? null : runId,
+        runId: run,
         createdAt: at(second),
         updatedAt: at(second),
         streaming: false,
@@ -3168,6 +3170,22 @@ describe("v2 run and attempt history", () => {
       "wake",
       "working-indicator-row",
       "live-activity-row",
+    ]);
+    // A wake that carries the response on answers in place of the steer's reply too.
+    const commandWake: TimelineEntry = {
+      ...wake,
+      entry: {
+        ...wake.entry,
+        structuredPayload: { type: "notification", source: { kind: "command" } } as never,
+      },
+    };
+    const wakeAnswer = message("wake-answer", "assistant", 35, undefined, RunId.make("wake"));
+    const prompt = message("user", "user", 0, undefined, runId);
+    expect(rows([prompt, steer, answer, final, commandWake, wakeAnswer], "zen")).toEqual([
+      "user",
+      "steer",
+      "wake",
+      "wake-answer",
     ]);
   });
   it("collapses only output from a superseded V2 attempt within the active logical run", () => {
@@ -4307,62 +4325,106 @@ describe("linked timeline resources", () => {
     },
   );
 
-  it("keeps created-chat summaries after the final answer and folds only their timeline rows", () => {
-    const timelineEntries = [
-      {
-        kind: "message" as const,
-        id: "intro",
-        createdAt: "2026-09-08T10:00:00Z",
-        message: {
-          id: MessageId.make("intro"),
-          role: "assistant" as const,
-          text: "Creating the chat",
-          runId,
-          streaming: false,
+  it.each([false, true])(
+    "keeps created-chat summaries after the final answer and folds only their timeline rows, final in a wake=%s",
+    (finalInWake) => {
+      // A delegate that reports back starts a wake run, which answers for the whole response.
+      const wakeRunId = RunId.make("resource-wake");
+      const finalRunId = finalInWake ? wakeRunId : runId;
+      const timelineEntries = [
+        {
+          kind: "message" as const,
+          id: "prompt",
+          createdAt: "2026-09-08T09:59:59Z",
+          message: {
+            id: MessageId.make("prompt"),
+            role: "user" as const,
+            text: "Make a chat",
+            runId,
+            streaming: false,
+            createdAt: "2026-09-08T09:59:59Z",
+            updatedAt: "2026-09-08T09:59:59Z",
+          },
+        },
+        {
+          kind: "message" as const,
+          id: "intro",
           createdAt: "2026-09-08T10:00:00Z",
-          updatedAt: "2026-09-08T10:00:00Z",
+          message: {
+            id: MessageId.make("intro"),
+            role: "assistant" as const,
+            text: "Creating the chat",
+            runId,
+            streaming: false,
+            createdAt: "2026-09-08T10:00:00Z",
+            updatedAt: "2026-09-08T10:00:00Z",
+          },
         },
-      },
-      event("created", "thread_created"),
-      {
-        kind: "message" as const,
-        id: "final",
-        createdAt: "2026-09-08T10:00:04Z",
-        message: {
-          id: MessageId.make("final"),
-          role: "assistant" as const,
-          text: "Chat is ready",
-          runId,
-          streaming: false,
+        event("created", "thread_created"),
+        ...(finalInWake
+          ? [
+              {
+                kind: "work" as const,
+                id: "reported",
+                createdAt: "2026-09-08T10:00:03Z",
+                entry: {
+                  id: "reported",
+                  runId: wakeRunId,
+                  createdAt: "2026-09-08T10:00:03Z",
+                  label: "Delegated task finished",
+                  tone: "info" as const,
+                  itemType: "notification" as const,
+                  structuredPayload: {
+                    type: "notification",
+                    source: { kind: "delegated_task", taskIds: [] },
+                  } as never,
+                },
+              },
+            ]
+          : []),
+        {
+          kind: "message" as const,
+          id: "final",
           createdAt: "2026-09-08T10:00:04Z",
-          updatedAt: "2026-09-08T10:00:04Z",
+          message: {
+            id: MessageId.make("final"),
+            role: "assistant" as const,
+            text: "Chat is ready",
+            runId: finalRunId,
+            streaming: false,
+            createdAt: "2026-09-08T10:00:04Z",
+            updatedAt: "2026-09-08T10:00:04Z",
+          },
         },
-      },
-    ];
-    const collapsed = deriveMessagesTimelineRows({ ...common, timelineEntries });
-    expect(collapsed.map((row) => row.id)).toEqual([
-      "turn-fold:resource-run",
-      "final",
-      "summary:created",
-      "assistant-meta:final",
-    ]);
-    expect(collapsed.find((row) => row.id === "summary:created")).toMatchObject({
-      resourceSummary: true,
-    });
-    const expanded = deriveMessagesTimelineRows({
-      ...common,
-      timelineEntries,
-      expandedRunIds: new Set([runId]),
-    });
-    expect(expanded.map((row) => row.id)).toEqual([
-      "turn-fold:resource-run",
-      "intro",
-      "created",
-      "final",
-      "summary:created",
-      "assistant-meta:final",
-    ]);
-  });
+      ];
+      const collapsed = deriveMessagesTimelineRows({ ...common, timelineEntries });
+      expect(collapsed.map((row) => row.id)).toEqual([
+        "prompt",
+        "turn-fold:resource-run",
+        "final",
+        "summary:created",
+        "assistant-meta:final",
+      ]);
+      expect(collapsed.find((row) => row.id === "summary:created")).toMatchObject({
+        resourceSummary: true,
+      });
+      const expanded = deriveMessagesTimelineRows({
+        ...common,
+        timelineEntries,
+        expandedRunIds: new Set([runId]),
+      });
+      expect(expanded.map((row) => row.id)).toEqual([
+        "prompt",
+        "turn-fold:resource-run",
+        "intro",
+        "created",
+        ...(finalInWake ? ["reported"] : []),
+        "final",
+        "summary:created",
+        "assistant-meta:final",
+      ]);
+    },
+  );
 
   it("shows a created chat after a steer only when that steer's segment is open", () => {
     const message = (id: string, role: "user" | "assistant", second: number) => ({
@@ -4408,11 +4470,26 @@ describe("linked timeline resources", () => {
   });
 });
 
-it.each([true, false])(
-  "keeps completed responses folded across notification wakes, working=%s",
-  (isWorking) => {
+it.each(
+  [true, false].flatMap((isWorking) =>
+    ([undefined, "command"] as const).map((source) => ({
+      isWorking,
+      source,
+    })),
+  ),
+)(
+  "folds responses across notification wakes, working=$isWorking source=$source",
+  ({ isWorking, source }) => {
     const time = (second: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
-    const work = (id: string, run: string, second: number, notification = false) => ({
+    const work = (
+      id: string,
+      run: string,
+      second: number,
+      notification = false,
+      notificationSource: OrchestrationV2NotificationSource | undefined = source && {
+        kind: source,
+      },
+    ) => ({
       kind: "work" as const,
       id,
       createdAt: time(second),
@@ -4423,8 +4500,24 @@ it.each([true, false])(
         label: id,
         tone: "info" as const,
         ...(notification ? { itemType: "notification" as const } : {}),
+        ...(notification && notificationSource !== undefined
+          ? { structuredPayload: { type: "notification", source: notificationSource } as never }
+          : {}),
       },
     });
+    const subagent = (id: string, run: string, second: number) => ({
+      id,
+      kind: "event" as const,
+      createdAt: time(second),
+      projectedItem: {
+        item: { id, type: "subagent", runId: RunId.make(run), status: "completed" },
+      } as never,
+    });
+    const pullRequestWatch = {
+      kind: "monitor",
+      pullRequest: { number: 1 },
+    } as unknown as OrchestrationV2NotificationSource;
+    // Codex marks every turn's last reply as its final answer, the filler a wake replaces included.
     const answer = (id: string, run: string, second: number) => ({
       kind: "message" as const,
       id,
@@ -4438,30 +4531,104 @@ it.each([true, false])(
         updatedAt: time(second),
         streaming: false,
       },
+      projectedItem: {
+        item: {
+          type: "assistant_message",
+          phase: "final_answer",
+          status: "completed",
+          completedAt: DateTime.makeUnsafe(time(second)),
+        },
+      } as never,
     });
-    const rows = deriveMessagesTimelineRows({
-      timelineEntries: [
-        work("launch-tools", "initial", 1),
-        answer("launched", "initial", 5),
-        work("notification-a", "wake-a", 20, true),
-        work("read-a", "wake-a", 21),
-        answer("ack-a", "wake-a", 25),
-        work("notification-b", "wake-b", 40, true),
-        work("read-b", "wake-b", 41),
-        ...(!isWorking ? [answer("ack-b", "wake-b", 45)] : []),
-      ],
-      latestRun: {
-        runId: RunId.make("wake-b"),
-        status: isWorking ? "running" : "completed",
-        startedAt: time(40),
-        completedAt: isWorking ? null : time(45),
+    const entries = [
+      {
+        kind: "message" as const,
+        id: "prompt",
+        createdAt: time(0),
+        message: {
+          id: MessageId.make("prompt"),
+          role: "user" as const,
+          text: "Build it",
+          runId: RunId.make("initial"),
+          createdAt: time(0),
+          updatedAt: time(0),
+          streaming: false,
+        },
       },
-      isWorking,
-      activeTurnStartedAt: time(40),
-      turnDiffSummaries: [],
-      supportsConversationRollback: false,
-    });
+      work("launch-tools", "initial", 1),
+      answer("launched", "initial", 5),
+      subagent("helper", "initial", 6),
+      work("notification-a", "wake-a", 20, true),
+      work("read-a", "wake-a", 21),
+      // A pull request notice delivered into a wake run is still news.
+      ...(source ? [work("pr-notice", "wake-a", 22, true, pullRequestWatch)] : []),
+      answer("ack-a", "wake-a", 25),
+      work("notification-b", "wake-b", 40, true),
+      work("read-b", "wake-b", 41),
+      ...(!isWorking ? [answer("ack-b", "wake-b", 45)] : []),
+      // Late output of the first run neither reopens it nor makes its answer the response's.
+      ...(source ? [work("late-tool", "initial", 46)] : []),
+    ];
+    const deriveRows = (timelineEntries: typeof entries) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        latestRun: {
+          runId: RunId.make("wake-b"),
+          status: isWorking ? "running" : "completed",
+          startedAt: time(40),
+          // The run ends after its last entry, once its checkpoint is taken.
+          completedAt: isWorking ? null : time(48),
+        },
+        isWorking,
+        activeTurnStartedAt: time(40),
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+      });
+    const rows = deriveRows(entries);
     const ids = rows.map((row) => row.id);
+    if (source) {
+      // The wakes carry on the prompt's response: its settled runs fold under one row.
+      const fold = rows.find((row) => row.id === "turn-fold:initial");
+      if (isWorking) {
+        expect(ids).toEqual([
+          "prompt",
+          "turn-fold:initial",
+          "pr-notice",
+          "ack-a",
+          "notification-b",
+          "working-indicator-row",
+          "work-live:read-b",
+          "live-activity-row",
+        ]);
+        expect(fold).toMatchObject({ label: "Worked for 46s" });
+        // Before any answer, a late card of the first run folds without breaking the live work.
+        const unanswered = deriveRows([
+          entries[0]!,
+          work("launch-tools", "initial", 1),
+          work("notification-b", "wake-b", 40, true),
+          work("read-b", "wake-b", 41),
+          subagent("late-helper", "initial", 46),
+        ]);
+        expect(unanswered.map((row) => row.id)).toEqual([
+          "prompt",
+          "turn-fold:initial",
+          "notification-b",
+          "working-indicator-row",
+          "work-live:read-b",
+          "live-activity-row",
+        ]);
+      } else {
+        expect(ids).toEqual(["prompt", "turn-fold:initial", "pr-notice", "ack-b"]);
+        expect(fold).toMatchObject({ label: "Worked for 48s" });
+        // A history page that starts mid-response, on a card of its first run, folds the same way.
+        expect(deriveRows(entries.slice(3)).map((row) => row.id)).toEqual([
+          "turn-fold:initial",
+          "pr-notice",
+          "ack-b",
+        ]);
+      }
+      return;
+    }
     expect(ids).toContain("turn-fold:initial");
     expect(ids).not.toContain("launch-tools");
     expect(ids).toContain("turn-fold:wake-a");

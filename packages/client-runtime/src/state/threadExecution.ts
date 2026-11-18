@@ -821,6 +821,86 @@ export function presentProviderGoal(
   };
 }
 
+/**
+ * Whether a wake from this source carries on the response before it. Work the agent started
+ * itself, its own monitors included, reports back into its response; a pull request watch or a
+ * system notice is news.
+ */
+export function notificationContinuesResponse(source: OrchestrationV2NotificationSource): boolean {
+  switch (source.kind) {
+    case "delegated_task":
+    case "subagent":
+    case "command":
+    case "background_task":
+      return true;
+    case "monitor":
+      return source.pullRequest === undefined;
+    case "system":
+      return false;
+    default:
+      source satisfies never;
+      return false;
+  }
+}
+
+/** The prompts (not steers) and notifications of a timeline, which start its runs. */
+export type ResponseBoundary =
+  | { readonly kind: "prompt"; readonly runId: RunId | null }
+  | {
+      readonly kind: "notification";
+      readonly runId: RunId | null;
+      readonly source: OrchestrationV2NotificationSource;
+    };
+
+/**
+ * A response is a prompt and the runs its continuing wakes start, which clients fold as one.
+ * Runs no boundary names are responses of their own.
+ */
+export interface ThreadResponses {
+  /** The first run of the response `runId` belongs to. */
+  readonly responseRunId: (runId: RunId) => RunId;
+  /** Whether a continuing wake started `runId`. */
+  readonly continuesResponse: (runId: RunId) => boolean;
+  /** Whether `runId` started last in its response, so its answer is the response's. */
+  readonly isLatestRun: (runId: RunId) => boolean;
+}
+
+export function deriveThreadResponses(boundaries: Iterable<ResponseBoundary>): ThreadResponses {
+  const continued = new Map<RunId, RunId>();
+  const latestRunByResponse = new Map<RunId, RunId>();
+  const started = new Set<RunId>();
+  let responseRunId: RunId | null = null;
+  for (const boundary of boundaries) {
+    const { runId } = boundary;
+    if (runId === null) {
+      responseRunId = null;
+      continue;
+    }
+    // Only a run's first input decides its response; later ones were delivered into it.
+    if (started.has(runId)) continue;
+    started.add(runId);
+    if (
+      boundary.kind === "notification" &&
+      responseRunId !== null &&
+      notificationContinuesResponse(boundary.source)
+    ) {
+      continued.set(runId, responseRunId);
+      latestRunByResponse.set(responseRunId, runId);
+      continue;
+    }
+    responseRunId = runId;
+  }
+  const responseOf = (runId: RunId) => continued.get(runId) ?? runId;
+  return {
+    responseRunId: responseOf,
+    continuesResponse: (runId) => continued.has(runId),
+    isLatestRun: (runId) => {
+      const response = responseOf(runId);
+      return (latestRunByResponse.get(response) ?? response) === runId;
+    },
+  };
+}
+
 export function notificationChildThreadId(
   source: OrchestrationV2NotificationSource,
 ): ThreadId | undefined {
