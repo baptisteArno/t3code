@@ -297,6 +297,30 @@ describe("getCachedNativeReviewDiffData", () => {
     expect(data.commentTargetsByRowId.size).toBe(2);
   });
 
+  it("labels hunk separators with the unchanged lines they hide", () => {
+    const data = buildNativeReviewDiffData(
+      buildReviewParsedDiff(
+        [
+          "diff --git a/example.ts b/example.ts",
+          "--- a/example.ts",
+          "+++ b/example.ts",
+          "@@ -2 +2 @@",
+          "-two",
+          "+TWO",
+          "@@ -10 +10 @@",
+          "-ten",
+          "+TEN",
+          "",
+        ].join("\n"),
+        "native-hunk-separators",
+      ),
+    );
+    expect(data.rows.filter((row) => row.kind === "hunk").map((row) => row.text)).toEqual([
+      "1 unmodified line",
+      "7 unmodified lines",
+    ]);
+  });
+
   it("keeps cached IDs and targets local to each parsed section and file layout", () => {
     const original = filesPatch(["example.ts", "second.ts"]);
     const variants = [
@@ -346,9 +370,9 @@ describe("buildNativeReviewDiffData row bound", () => {
     expect(ordinaryHeader).toMatchObject({ additions: 1_000, deletions: 0 });
     expect(data).toMatchObject({ additions: 201_000, deletions: 0 });
     const hugeRows = data.rows.filter((row) => row.fileId === hugeHeader?.fileId);
-    expect(hugeRows.filter((row) => row.kind === "line" || row.kind === "hunk")).toHaveLength(
-      100_000,
-    );
+    // The cap counts the source hunk row, which draws nothing for a hunk starting at line 1.
+    expect(hugeRows.some((row) => row.kind === "hunk")).toBe(false);
+    expect(hugeRows.filter((row) => row.kind === "line")).toHaveLength(99_999);
     expect(hugeRows.at(-2)).toMatchObject({ kind: "line", newLineNumber: 99_999 });
     expect(hugeRows.at(-1)).toMatchObject({
       kind: "notice",

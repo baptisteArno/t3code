@@ -460,12 +460,19 @@ function prepareFileRows(file: ReviewRenderableFile): PreparedNativeReviewFileRo
   let lineIndex = 0;
   sourceRows.forEach((row, rowIndex) => {
     if (row.kind === "hunk") {
-      rows.push({
-        kind: "hunk",
-        id: `${file.id}:hunk:${rowIndex}:${row.id}`,
-        fileId: file.id,
-        text: row.context ? `${row.header} ${row.context}` : row.header,
-      });
+      // Like the web diff, a separator only marks unchanged lines the diff leaves out.
+      if (row.collapsedBefore > 0) {
+        rows.push({
+          kind: "hunk",
+          id: `${file.id}:hunk:${rowIndex}:${row.id}`,
+          fileId: file.id,
+          text: m(
+            msg("{count, plural, one {{count} unmodified line} other {{count} unmodified lines}}", {
+              count: row.collapsedBefore,
+            }),
+          ),
+        });
+      }
       return;
     }
 
