@@ -945,12 +945,21 @@ describe("buildThreadFeed", () => {
       messageId: MessageId.make("message-middle"),
       text: "The configuration is valid; checking the build next.",
     };
+    const sentMessage = "Still reading the deployment configuration.";
+    const sent: OrchestrationV2TurnItem = {
+      ...base("item-sent", "2026-06-20T00:00:02.200Z", 1),
+      type: "dynamic_tool",
+      toolName: "mcp__t3-code__send_to_user",
+      input: { message: sentMessage },
+      output: { structuredContent: { sentMessage }, content: [] },
+    };
     const feed = buildThreadFeed([
       projected(userMessage(), 0),
       projected(opening, 1),
       projected(command(), 2),
-      projected(middle, 3),
-      projected(assistantMessage(), 4),
+      projected(sent, 3),
+      projected(middle, 4),
+      projected(assistantMessage(), 5),
     ]);
     const latestRun = {
       runId,
@@ -977,6 +986,7 @@ describe("buildThreadFeed", () => {
       "run-fold",
       "message",
       "activity-group",
+      "sent-message",
       "message",
       "message",
     ]);
@@ -995,7 +1005,7 @@ describe("buildThreadFeed", () => {
         (entry) => entry.type === "activity-group",
       ),
     ).toBe(true);
-    expect(expanded[4]).toMatchObject({ message: { id: middle.messageId, text: middle.text } });
+    expect(expanded[5]).toMatchObject({ message: { id: middle.messageId, text: middle.text } });
 
     const active = deriveThreadFeedPresentation(
       feed,
@@ -1008,6 +1018,7 @@ describe("buildThreadFeed", () => {
       "message-middle",
       "message-assistant",
     ]);
+    expect(active.some((entry) => entry.type === "sent-message")).toBe(true);
   });
 
   // regression: #21393 show plans and fold settled progress notes
@@ -1605,6 +1616,17 @@ describe("buildThreadFeed", () => {
       "wake",
       "thinking:",
     ]);
+    const sent: OrchestrationV2TurnItem = {
+      ...base("sent", at(2), 1),
+      type: "dynamic_tool",
+      toolName: "mcp__t3-code__send_to_user",
+      input: { message: "Progress" },
+      output: { structuredContent: { sentMessage: "Progress" }, content: [] },
+    };
+    const showsSent = (ids: ReadonlyArray<string>) => ids.some((id) => id.startsWith("sent-"));
+    expect(showsSent(rows([user, sent, step], "zen", running))).toBe(true);
+    expect(showsSent(rows([user, sent, final, wake], "zen", nextRun))).toBe(true);
+    expect(rows([user, sent, final], "zen")).toEqual(["user", "final"]);
   });
 });
 

@@ -1646,17 +1646,14 @@ const CITATION_REQUEST = {
 describe("MessagesTimeline citations", () => {
   it("offers Cite for text an agent sent with send_to_user", async () => {
     const text = "The draft the next question refers to";
+    const runId = RunId.make("run-sent");
     await using screen = await renderTimeline(
-      [
-        {
-          id: "sent",
-          kind: "sent-message",
-          createdAt: CREATED_AT,
-          runId: RunId.make("run-sent"),
-          text,
-        },
-      ],
-      { onCiteAssistantText: () => true },
+      [{ id: "sent", kind: "sent-message", createdAt: CREATED_AT, runId, text }],
+      {
+        onCiteAssistantText: () => true,
+        isWorking: true,
+        latestRun: { runId, status: "running", startedAt: CREATED_AT, completedAt: null },
+      },
     );
     await expect.element(screen.getByText(text)).toHaveStyle({ pointerEvents: "auto" });
     await userEvent.tripleClick(screen.getByText(text));

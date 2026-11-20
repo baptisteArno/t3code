@@ -963,6 +963,10 @@ function timelineEntryFoldRunId(entry: TimelineEntry, runlessKey: RunId | null):
   if (entry.kind === "work") {
     return entry.entry.runId ?? runlessKey;
   }
+  // Mid-turn text was for reading while the run worked; once it settles, the answer speaks.
+  if (entry.kind === "sent-message") {
+    return entry.runId ?? runlessKey;
+  }
   if (
     entry.kind === "event" &&
     (timelineEntryIsPersistentResourceCard(entry) || entry.projectedItem.item.type === "subagent")
@@ -1265,9 +1269,10 @@ function deriveTurnFolds(input: {
       }
       const isCompaction = timelineEntryIsCompaction(entry);
       const isFoldableTrailingActivity =
-        entry.kind === "work" &&
-        entry.entry.toolLifecycleStatus !== "inProgress" &&
-        !workEntryDisplayIndicatesToolFailure(entry.entry);
+        entry.kind === "sent-message" ||
+        (entry.kind === "work" &&
+          entry.entry.toolLifecycleStatus !== "inProgress" &&
+          !workEntryDisplayIndicatesToolFailure(entry.entry));
       if (!isCompaction && index > terminalEntryIndex && !isFoldableTrailingActivity) {
         continue;
       }
@@ -1667,7 +1672,18 @@ function timelineRowEntries(
     const terminalIds = deriveTerminalAssistantMessageIds(entries, responses);
     const steerAnswerIds = deriveInFlightSteerAnswerIds(entries, responses);
     const retainedReplyIds = retainedAssistantReplyEntryIds(entries, responses);
+    const answeringResponseRunId =
+      answeringRunId === null ? null : responses.responseRunId(answeringRunId);
     shown = entries.filter((entry, index) => {
+      // Zen never folds, so text sent mid-turn leaves once its response stops working.
+      if (entry.kind === "sent-message") {
+        return (
+          index >= answeringFrom ||
+          (answeringResponseRunId !== null &&
+            entry.runId !== null &&
+            responses.responseRunId(entry.runId) === answeringResponseRunId)
+        );
+      }
       if (entry.kind !== "message") {
         return workShownAsFinalAnswerOnly(entry, input.pendingApprovalRequestIds);
       }
