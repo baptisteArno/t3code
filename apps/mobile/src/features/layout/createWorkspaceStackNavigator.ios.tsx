@@ -39,7 +39,6 @@ import { WorkspaceNativeTabs } from "./workspace/WorkspaceNativeTabs.ios";
 import { WorkspaceTabDock } from "./workspace/WorkspaceTabDock";
 import { NAVIGATION_TAB_ORDER } from "./workspace/navigation-tab-order";
 import { workspaceUsesColumns } from "./workspace/workspace-tabs-state";
-import { useWorkspaceCompose } from "./workspace/useWorkspaceCompose";
 import { selectedIssueKeyOf } from "../issues/issueParams";
 import { isSettingsRoute, settingsOpenIn } from "../settings/settings-navigation";
 import { workspaceRoutesOf } from "./workspace-overlay-routes";
@@ -266,9 +265,8 @@ function WorkspaceColumns(
   const settingsOpen = workspaceTabs?.settingsOpen ?? false;
   const openNewTask = startNewTask;
   // The cover detail rail needs room for thread tools above the fixed tabs.
-  // The unfolded Duo keeps compose in its detail bar.
-  const compose = useWorkspaceCompose();
-  const detailCompose = deviceType === "duo-unfolded" ? compose?.onPress : undefined;
+  // Fork: the unfolded Duo keeps compose in the list's bar only (WorkspaceToolbar).
+  const detailCompose: (() => void) | undefined = undefined;
   // Pages a hidden tab opens as it's shown belong to the tab, so they appear in place.
   const headerOnly = use(NativeWorkspaceTabActivityContext)?.headerOnly === true;
   const [shownPages, setShownPages] = useState({ headerOnly, keys: new Set<string>() });
