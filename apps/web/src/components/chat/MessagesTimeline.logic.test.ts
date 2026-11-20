@@ -3211,6 +3211,23 @@ describe("v2 run and attempt history", () => {
       "wake",
       "wake-answer",
     ]);
+    const sent: TimelineEntry = {
+      id: "sent",
+      kind: "sent-message",
+      createdAt: at(6),
+      runId,
+      text: "Progress",
+    };
+    expect(rows([user, sent, step], "zen", running)).toEqual([
+      "user",
+      "working-indicator-row",
+      "sent",
+      "live-activity-row",
+    ]);
+    expect(
+      rows([prompt, sent, final, commandWake], "zen", { ...running, runId: RunId.make("wake") }),
+    ).toContain("sent");
+    expect(rows([user, sent, final], "zen")).toEqual(["user", "final"]);
   });
   it("collapses only output from a superseded V2 attempt within the active logical run", () => {
     const runId = "run-steered" as never;
