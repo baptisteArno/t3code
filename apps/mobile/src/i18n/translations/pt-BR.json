@@ -3523,6 +3523,8 @@
   "0a3f122ccb7757c8": "A configuração do dispositivo não foi salva. A nova configuração foi aplicada a: {environments}.",
   "d65f9a3ee3f07eb8": "Atividade dos agentes",
   "9ddc5a1e3ae7dc5d": "Notificações do dispositivo",
+  "36e9d40f2e36fe6f": "Só quando uma thread precisar de você",
+  "6b4e8fb2ecff8940": "Avisar só de uma thread que aguarda sua resposta, aprovação ou plano, ou de uma que respondeu até {minutes} min depois da sua mensagem (janela de resposta rápida). Execuções longas, falhas e pedidos de convidados ficam em silêncio.",
   "3f5506ebb3736478": "Live Updates dos agentes",
   "54c35365b4a741c4": "Atividade dos agentes em andamento",
   "4a74d2a481496baa": "Atualizações de Live Activity",

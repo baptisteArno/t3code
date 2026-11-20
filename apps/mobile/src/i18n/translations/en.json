@@ -3530,6 +3530,8 @@
   "0a3f122ccb7757c8": "The device setting was not saved. The new setting was applied to: {environments}.",
   "d65f9a3ee3f07eb8": "Agent activity",
   "9ddc5a1e3ae7dc5d": "Device Notifications",
+  "36e9d40f2e36fe6f": "Only when a thread needs you",
+  "6b4e8fb2ecff8940": "Alert only for a thread waiting on your answer, approval or plan, or one that answered within {minutes} min of your message (Quick reply window). Longer runs, failures and guest requests stay silent.",
   "3f5506ebb3736478": "Agent Live Updates",
   "54c35365b4a741c4": "Ongoing Agent Activity",
   "4a74d2a481496baa": "Live Activity Updates",

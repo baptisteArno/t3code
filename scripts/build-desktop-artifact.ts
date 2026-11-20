@@ -968,6 +968,8 @@ interface StagePackageJson {
   readonly buildVersion: string;
   readonly t3codeCommitHash: string;
   readonly t3codeWebAuthn?: MacWebAuthnEntitlements;
+  /** Read by apps/desktop/src/app/DesktopPushPresence.ts. */
+  readonly t3codePushService?: { readonly url: string; readonly token: string };
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
@@ -3998,6 +4000,12 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     options.platform === "win"
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
       : undefined;
+  const repoEnv = signedMacRepoEnv ?? loadRepoEnv({ repoRoot });
+  const pushServiceUrl = repoEnv.T3CODE_PUSH_SERVICE_URL?.trim();
+  const pushServiceToken = repoEnv.T3CODE_PUSH_SERVICE_TOKEN?.trim();
+  // The fork's iOS app uses the same push service, which mutes the phone while this app is in use.
+  const pushService =
+    pushServiceUrl && pushServiceToken ? { url: pushServiceUrl, token: pushServiceToken } : null;
   const stagePackageJson: StagePackageJson = {
     name: "t3code",
     version: appVersion,
@@ -4005,6 +4013,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     t3codeCommitHash: commitHash,
     // Read by apps/desktop/src/preview/Passkeys.ts; must match the signed entitlements.
     ...(macWebAuthn ? { t3codeWebAuthn: macWebAuthn } : {}),
+    ...(pushService ? { t3codePushService: pushService } : {}),
     private: true,
     packageManager: rootPackageJson.packageManager,
     description:
