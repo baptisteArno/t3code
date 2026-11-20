@@ -1,4 +1,5 @@
 import { DpopProof, ManagedRelay } from "@t3tools/client-runtime/relay";
+import * as PushService from "@t3tools/client-runtime/relay/push-service";
 import { RelayMobileClientId } from "@t3tools/contracts/relay";
 import * as Layer from "effect/Layer";
 
@@ -10,9 +11,16 @@ const layerRelayDpopSigner = DpopProof.layerSigner({
   loadOrCreateKey: loadOrCreateProofKey(),
 });
 
-export const layer = (relayUrl: string) =>
-  ManagedRelay.layer({
+export const layer = (
+  relayUrl: string,
+  pushService: PushService.PushServiceConfig | null = null,
+) => {
+  const relay = ManagedRelay.layer({
     relayUrl,
     clientId: RelayMobileClientId,
     accessTokenStore: managedRelayAccessTokenStore,
-  }).pipe(Layer.provideMerge(layerRelayDpopSigner));
+  });
+  return (
+    pushService ? PushService.layerMobileRoutes(pushService).pipe(Layer.provide(relay)) : relay
+  ).pipe(Layer.provideMerge(layerRelayDpopSigner));
+};
