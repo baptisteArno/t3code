@@ -1,5 +1,5 @@
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
-import { msg, useGT, useMessages } from "gt-react-native";
+import { msg, T, useGT, useMessages } from "gt-react-native";
 import * as Dialog from "../../components/ui/Dialog";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
 import {
@@ -21,11 +21,16 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
 import { useRef, useState, useSyncExternalStore } from "react";
-import { Linking, Platform } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { m as resolveMessage } from "../../i18n/messages";
 
 import { AppText as Text } from "../../components/ui/AppText";
+import { NumberField } from "../../components/ui/NumberField";
+import {
+  DEFAULT_INBOX_QUICK_REPLY_MINUTES,
+  MAX_INBOX_QUICK_REPLY_MINUTES,
+} from "@t3tools/contracts/settings";
 import {
   createEnvironmentCommand,
   isAtomCommandInterrupted,
@@ -57,9 +62,14 @@ import {
   updateLinkedEnvironmentLiveActivityPreference,
 } from "../cloud/linkEnvironment";
 import { refreshManagedRelayEnvironments } from "../cloud/managedRelayState";
-import { hasCloudPublicConfig, resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
+import {
+  hasCloudPublicConfig,
+  resolvePushServiceConfig,
+  resolveRelayClerkTokenOptions,
+} from "../cloud/publicConfig";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import { runtime } from "../../lib/runtime";
+import type { Preferences } from "../../persistence/mobile-preferences";
 import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
@@ -100,6 +110,12 @@ const updateEnvironmentPreference = Effect.fn("updateEnvironmentPreference")(fun
     resolveMessage(msg("Could not update the environment's Live Activity preference.")),
   );
 });
+
+// The registration reads saved preferences, so it runs once the save lands.
+const saveAlertPreference = (patch: Partial<Preferences>) =>
+  saveMobilePreferences
+    .run(appAtomRegistry, patch)
+    .pipe(Effect.andThen(refreshAgentAwarenessRegistration()));
 
 const saveLocalPreference = (liveActivitiesEnabled: boolean) =>
   saveMobilePreferences.run(appAtomRegistry, { liveActivitiesEnabled });
@@ -248,6 +264,22 @@ function ConfiguredSettingsNotificationsRouteScreen() {
   const canClearLiveActivitiesPreference =
     AsyncResult.isSuccess(preferencesResult) &&
     preferencesResult.value.liveActivitiesEnabled !== false;
+
+  const deviceNotificationsOn =
+    agentAwarenessPushAvailable && notificationStatus === "enabled" && notificationsReady;
+  // Only the fork's push service, which serves iOS, can tell a quick reply from any completion.
+  const needsYouFilterAvailable = Platform.OS === "ios" && resolvePushServiceConfig() !== null;
+  const savedPreferences = AsyncResult.isSuccess(preferencesResult)
+    ? preferencesResult.value
+    : null;
+  const notifyOnlyWhenNeeded = savedPreferences?.notifyOnlyWhenNeeded === true;
+  const quickReplyMinutes =
+    savedPreferences?.inboxQuickReplyMinutes ?? DEFAULT_INBOX_QUICK_REPLY_MINUTES;
+  const saveAlertPreferences = (patch: Partial<Preferences>) => {
+    void settleAsyncResult(() => runtime.runPromiseExit(saveAlertPreference(patch))).then(
+      (result) => reportAtomCommandResult(result, { label: "notification filter save" }),
+    );
+  };
 
   const connections = Object.values(savedConnectionsById);
   const environmentCount = connections.length;
@@ -573,11 +605,37 @@ function ConfiguredSettingsNotificationsRouteScreen() {
               notificationStatus === "unsupported"
             }
             subtitle={agentAwarenessSubtitle}
-            value={
-              agentAwarenessPushAvailable && notificationStatus === "enabled" && notificationsReady
-            }
+            value={deviceNotificationsOn}
             onValueChange={handleDeviceNotificationsChange}
           />
+          {needsYouFilterAvailable && deviceNotificationsOn ? (
+            <SettingsSwitchRow
+              icon="line.3.horizontal.decrease.circle"
+              label={gt("Only when a thread needs you")}
+              subtitle={gt(
+                "Alert only for a thread waiting on your answer, approval or plan, or one that answered within {minutes} min of your message (Quick reply window). Longer runs, failures and guest requests stay silent.",
+                { minutes: quickReplyMinutes },
+              )}
+              value={notifyOnlyWhenNeeded}
+              onValueChange={(value) => saveAlertPreferences({ notifyOnlyWhenNeeded: value })}
+            />
+          ) : null}
+          {needsYouFilterAvailable && deviceNotificationsOn && notifyOnlyWhenNeeded ? (
+            <View className="flex-row items-center gap-4 px-4 py-4">
+              <View className="w-[22px]" />
+              <Text className="flex-1 text-foreground text-lg">
+                <T>Quick reply window</T>
+              </Text>
+              <NumberField
+                value={quickReplyMinutes}
+                min={0}
+                max={MAX_INBOX_QUICK_REPLY_MINUTES}
+                label={gt("Quick reply window")}
+                formatValue={(value) => `${value} min`}
+                onValueChange={(value) => saveAlertPreferences({ inboxQuickReplyMinutes: value })}
+              />
+            </View>
+          ) : null}
           <SettingsSwitchRow
             disabled={
               !agentAwarenessPlatform.supported ||

@@ -18,6 +18,10 @@
     "./relay": {
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"
+    },
+    "./pushService": {
+      "types": "./src/pushService.ts",
+      "import": "./src/pushService.ts"
     }
   },
   "scripts": {
