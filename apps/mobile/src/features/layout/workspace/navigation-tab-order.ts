@@ -21,10 +21,9 @@ export function sharedSlotAbsentee(selected: NavigationTab, last: unknown): Shar
   return holder === "issues" ? "pullRequests" : "issues";
 }
 
-export function navigationCustomizationAvailable(
-  registeredSections: number = NAVIGATION_TAB_ORDER.length - 1,
-) {
-  return registeredSections > 4;
+// Fork: tabs can be hidden and reordered whatever the number of sections.
+export function navigationCustomizationAvailable() {
+  return true;
 }
 
 export const NAVIGATION_TAB_LABELS: Readonly<Record<NavigationTab, string>> = {
