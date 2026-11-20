@@ -1090,7 +1090,8 @@ it.effect("keeps a branch's base cached while only other refs' commits move", ()
       // Another worktree's commits and a fetch moving a packed base ref add or remove no name.
       yield* git(other, ["commit", "--allow-empty", "-m", "other"]);
       yield* driver.statusDetailsLocal(cwd);
-      assert.equal(spawnedArgs.length, 6);
+      // Six, plus the ahead count's `merge-base --fork-point`.
+      assert.equal(spawnedArgs.length, 7);
       assert.equal(lookups(), 0);
       yield* git(other, ["commit", "--allow-empty", "-m", "other again"]);
       yield* git(cwd, ["update-ref", `refs/remotes/origin/${initialBranch}`, "other"]);
@@ -5335,6 +5336,54 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const preview = yield* driver.getReviewDiffPreview({ cwd });
         const changes = preview.sources.find((source) => source.kind === "branch-range")!;
         assert.strictEqual(changes.baseRef, "upstream/main");
+        assert.deepStrictEqual(
+          changes.files?.map((file) => file.path),
+          ["feature.txt"],
+        );
+      }),
+    );
+
+    it.effect("counts only branch work after its base is force-pushed with rewritten commits", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const fork = yield* makeTmpDir();
+        const rewriter = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(fork, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", fork]);
+        yield* writeTextFile(cwd, "fork.txt", "fork divergence\n");
+        yield* git(cwd, ["add", "fork.txt"]);
+        yield* git(cwd, ["commit", "-m", "fork divergence"]);
+        yield* git(cwd, ["push", "origin", "main"]);
+        yield* git(cwd, ["fetch", "origin"]);
+        yield* git(cwd, ["checkout", "--no-track", "-b", "t3/feature", "origin/main"]);
+        yield* git(cwd, [
+          "config",
+          "branch.t3/feature.t3-merge-base-ref",
+          "refs/remotes/origin/main",
+        ]);
+        yield* writeTextFile(cwd, "feature.txt", "thread work\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "thread work"]);
+
+        yield* git(rewriter, ["clone", fork, "."]);
+        yield* git(rewriter, ["config", "user.email", "test@test.com"]);
+        yield* git(rewriter, ["config", "user.name", "Test"]);
+        yield* git(rewriter, ["commit", "--amend", "-m", "fork divergence, folded"]);
+        yield* git(rewriter, ["push", "--force", "origin", "HEAD:main"]);
+        yield* git(cwd, ["fetch", "origin"]);
+
+        const status = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
+        assert.deepStrictEqual(status.branchChanges, {
+          baseRef: "origin/main",
+          insertions: 1,
+          deletions: 0,
+        });
+        assert.strictEqual(status.aheadCount, 1);
+        const preview = yield* driver.getReviewDiffPreview({ cwd });
+        const changes = preview.sources.find((source) => source.kind === "branch-range")!;
         assert.deepStrictEqual(
           changes.files?.map((file) => file.path),
           ["feature.txt"],
