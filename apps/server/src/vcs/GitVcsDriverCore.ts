@@ -2353,6 +2353,23 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return null;
   });
 
+  // A force-pushed base rewrites the commits HEAD started from, so a plain merge-base lands
+  // below them and counts them as branch work. The base's reflog still holds the old tip.
+  const resolveForkPoint = Effect.fn("resolveForkPoint")(function* (
+    cwd: string,
+    comparisonRef: string,
+  ) {
+    if (!comparisonRef.startsWith("refs/")) return null;
+    const result = yield* executeGit(
+      "GitVcsDriver.resolveForkPoint",
+      cwd,
+      ["merge-base", "--fork-point", "--end-of-options", comparisonRef, "HEAD"],
+      { allowNonZeroExit: true },
+    );
+    const forkPoint = result.stdout.trim();
+    return result.exitCode === 0 && forkPoint.length > 0 ? forkPoint : null;
+  });
+
   const computeAheadCountAgainstBase = Effect.fn("computeAheadCountAgainstBase")(function* (
     cwd: string,
     refName: string,
@@ -2362,11 +2379,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     if (!base) {
       return 0;
     }
+    const since = (yield* resolveForkPoint(cwd, base.comparisonRef)) ?? base.comparisonRef;
 
     const result = yield* executeGit(
       "GitVcsDriver.computeAheadCountAgainstBase",
       cwd,
-      ["rev-list", "--count", "--end-of-options", `${base.comparisonRef}..HEAD`],
+      ["rev-list", "--count", "--end-of-options", `${since}..HEAD`],
       { allowNonZeroExit: true },
     );
     if (result.exitCode !== 0) {
@@ -4008,6 +4026,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           : null;
     if (base === null) return { baseRef: null, mergeBase: "HEAD" };
     const { baseRef, comparisonRef } = base;
+    const forkPoint = yield* resolveForkPoint(cwd, comparisonRef);
+    if (forkPoint !== null) return { baseRef, mergeBase: forkPoint };
     const args = ["merge-base", "--end-of-options", comparisonRef, "HEAD"];
     const result = yield* executeGit("GitVcsDriver.resolveReviewMergeBase", cwd, args, {
       allowNonZeroExit: true,
