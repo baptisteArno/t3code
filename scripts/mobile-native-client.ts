@@ -743,9 +743,9 @@ const build = Effect.fn("nativeClient.build")(function* (
         [
           "xcodebuild",
           "-workspace",
-          path.join(mobile, "ios/T3CodeDev.xcworkspace"),
+          path.join(mobile, "ios/CadenceDev.xcworkspace"),
           "-scheme",
-          "T3CodeDev",
+          "CadenceDev",
           "-configuration",
           "Debug",
           "-destination",
@@ -759,7 +759,7 @@ const build = Effect.fn("nativeClient.build")(function* (
         true,
       );
       yield* command("ditto", [
-        path.join(output, "Build/Products/Debug-iphonesimulator", artifactNames.ios),
+        path.join(output, "Build/Products/Debug-iphonesimulator/CadenceDev.app"),
         path.join(staging, artifactNames.ios),
       ]);
     } else {
