@@ -302,7 +302,10 @@ export function createInboxReturnTracker() {
             ? (previous.deadline ?? at + WORKING_EXIT_GRACE_MS)
             : null;
         const working = actual || (deadline !== null && deadline > at);
-        if (previous?.working && !working) returns.set(key, at);
+        // A run end this client missed (asleep, offline) is already in the sort as completedAt;
+        // stamping it now would order it by when the client woke, unlike every other client.
+        const missedRunEnd = endedLongAgo && previous !== undefined;
+        if (previous?.working && !working && !missedRunEnd) returns.set(key, at);
         states.set(key, { working, deadline: working ? deadline : null, placement, endedAt });
       }
       for (const key of states.keys()) {

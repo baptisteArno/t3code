@@ -96,7 +96,27 @@ describe("createInboxReturnTracker", () => {
     vi.setSystemTime(200_000);
     tracker.observe([finished]);
     expect(tracker.isWorking(finished)).toBe(false);
-    expect(tracker.returnedAt(finished)).toBe(200_000);
+    // The run's own end places it, so every client sorts it alike.
+    expect(tracker.returnedAt(finished)).toBeUndefined();
+  });
+
+  it("stamps work that outlived its run when it ends, however old the run", () => {
+    const tracker = createInboxReturnTracker();
+    const latestRun = {
+      runId: RunId.make("ended-before-background-work"),
+      status: "completed" as const,
+      requestedAt: "1970-01-01T00:00:02.000Z",
+      startedAt: "1970-01-01T00:00:02.000Z",
+      completedAt: "1970-01-01T00:00:09.000Z",
+      assistantMessageId: null,
+    };
+    tracker.observe([{ ...thread("a", true), latestRun }]);
+    vi.setSystemTime(200_000);
+    const finished = { ...thread("a", false), latestRun };
+    tracker.observe([finished]);
+    expect(tracker.isWorking(finished)).toBe(true);
+    vi.advanceTimersByTime(2_000);
+    expect(tracker.returnedAt(finished)).toBe(202_000);
   });
 
   it("holds a thread whose background subagent finished long after its turn ended", () => {
