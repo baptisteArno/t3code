@@ -3,10 +3,11 @@ import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
+import { Platform } from "react-native";
 
 import * as Dpop from "../features/cloud/dpop";
 import * as ManagedRelayLayer from "../features/cloud/managedRelayLayer";
-import { resolveCloudPublicConfig } from "../features/cloud/publicConfig";
+import { resolveCloudPublicConfig, resolvePushServiceConfig } from "../features/cloud/publicConfig";
 import * as Tracing from "../features/observability/tracing";
 import * as NativeWebSocket from "../native/nativeWebSocket";
 import * as Persistence from "../persistence/layer";
@@ -30,7 +31,11 @@ type RuntimeLayerSource =
   | typeof Tracing.layer;
 
 const layerRuntime = Layer.merge(
-  ManagedRelayLayer.layer(configuredRelayUrl()),
+  // The push service only delivers to iOS; Android keeps the relay's FCM path.
+  ManagedRelayLayer.layer(
+    configuredRelayUrl(),
+    Platform.OS === "ios" ? resolvePushServiceConfig() : null,
+  ),
   NativeWebSocket.layer,
 ).pipe(
   Layer.provideMerge(Dpop.layer),
