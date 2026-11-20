@@ -45,8 +45,12 @@ export function WorkspaceToolbar(props: {
   const bottomSearch = duoSearch && sidebarTabs !== "picker";
   const compose = useWorkspaceCompose();
   // On the Duo, compose sits in the list's bar when folded and the detail column's when unfolded.
+  // Fork: unfolded, it sits atop the sidebar while the sidebar shows.
   const nativeToolbarCompose =
-    deviceType === "duo-folded" && compose !== null && activeNewTask === null;
+    (deviceType === "duo-folded" ||
+      (deviceType === "duo-unfolded" && use(NativePrimaryColumnContext)?.presented === true)) &&
+    compose !== null &&
+    activeNewTask === null;
   const tabActive = use(NativeWorkspaceTabActivityContext)?.active ?? true;
   const focused = useIsFocused();
   const { layout, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
