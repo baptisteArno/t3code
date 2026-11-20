@@ -6,11 +6,12 @@ import {
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { useState } from "react";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../../test/render";
 import { ComposerEffortColumn, describeComposerEffort } from "./ComposerModelEffort";
+import { DockedPickerContext } from "./ProviderModelPicker";
 import type { TraitsSelectionInput } from "./TraitsPicker";
 
 // Shaped like Devin over ACP: its session mode comes first, and its reasoning id is its own.
@@ -74,13 +75,15 @@ function traitsInput(
   };
 }
 
-function Column() {
+function Column(props: { onClose?: () => void }) {
   const [options, setOptions] = useState<ReadonlyArray<ProviderOptionSelection>>([]);
   const traits = traitsInput(options, (next) => setOptions(next ?? []));
   return (
     <>
       <div data-model-picker-effort>
-        <ComposerEffortColumn traits={traits} />
+        <DockedPickerContext value={{ modelLabel: "Fusion", close: props.onClose ?? (() => {}) }}>
+          <ComposerEffortColumn traits={traits} />
+        </DockedPickerContext>
       </div>
       <p role="status">{describeComposerEffort(traits, "bars", "sm").suffix}</p>
     </>
@@ -88,7 +91,8 @@ function Column() {
 }
 
 it("draws an agent's reasoning as bars and keeps its mode out of the levels", async () => {
-  await using screen = await render(<Column />, { router: false }); // no routes involved
+  const onClose = vi.fn();
+  await using screen = await render(<Column onClose={onClose} />, { router: false }); // no routes involved
   const status = screen.getByRole("status");
   expect(status.element().querySelector("[data-composer-effort-glyph]")).not.toBeNull();
   await expect.element(status).toHaveTextContent("");
@@ -100,7 +104,14 @@ it("draws an agent's reasoning as bars and keeps its mode out of the levels", as
   // Up and Down walk from the levels through the option rows without opening their menus.
   await userEvent.tab();
   await expect.element(screen.getByRole("radio", { name: "Medium" })).toHaveFocus();
-  await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
+  // Space picks a level and keeps the picker open; Enter picks and closes it.
+  await userEvent.keyboard("{ArrowDown} ");
+  await expect.element(screen.getByRole("radio", { name: "High" })).toBeChecked();
+  expect(onClose).not.toHaveBeenCalled();
+  await userEvent.keyboard("{ArrowUp}{ArrowUp}{Enter}");
+  await expect.element(screen.getByRole("radio", { name: "Low" })).toBeChecked();
+  expect(onClose).toHaveBeenCalledOnce();
+  await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
   const speed = screen.getByRole("button", { name: "Speed: Standard" });
   await expect.element(speed).toHaveFocus();
   await expect.element(page.getByRole("menuitemradio")).not.toBeInTheDocument();
