@@ -504,6 +504,10 @@ const config: ExpoConfig = {
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
     },
+    pushService: {
+      url: repoEnv.T3CODE_PUSH_SERVICE_URL ?? null,
+      token: repoEnv.T3CODE_PUSH_SERVICE_TOKEN ?? null,
+    },
     clerk: {
       publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,
       jwtTemplate: repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE ?? null,

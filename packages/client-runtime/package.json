@@ -203,6 +203,10 @@
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
     },
+    "./relay/push-service": {
+      "types": "./src/relay/pushService.ts",
+      "default": "./src/relay/pushService.ts"
+    },
     "./state/auth": {
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"
