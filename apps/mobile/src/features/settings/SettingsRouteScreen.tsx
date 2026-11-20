@@ -228,6 +228,7 @@ function SettingsList(props: { readonly connections: readonly SettingsListRow[] 
 
 function useSettingsIndexSections(): SettingsListSection[] {
   const gt = useGT();
+  const usageTabHidden = useHiddenNavigationTabs().includes("usage");
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const noServerTargets = selectedTargets.length === 0;
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
@@ -262,6 +263,16 @@ function useSettingsIndexSections(): SettingsListSection[] {
         page("SettingsFollowUp", "bubble.left.and.bubble.right", gt("Chat")),
         ...(navigationCustomizationAvailable()
           ? [page("SettingsNavigation", "line.3.horizontal", gt("Navigation tabs"))]
+          : []),
+        // Fork: a hidden Usage tab stays one tap away.
+        ...(usageTabHidden
+          ? [
+              page(
+                "SettingsUsage",
+                "chart.bar.xaxis",
+                gt("Usage", { $context: "command, opens usage settings" }),
+              ),
+            ]
           : []),
         page("SettingsKeyboard", "keyboard", gt("Keyboard")),
         page("SettingsVoice", "mic", gt("Voice")),
