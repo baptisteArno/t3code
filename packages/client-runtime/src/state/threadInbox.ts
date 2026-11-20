@@ -196,7 +196,12 @@ export function createInboxReturnTracker() {
   const keyOf = (thread: ThreadKeyInput) => `${thread.environmentId}:${thread.id}`;
   const states = new Map<
     string,
-    { working: boolean; deadline: number | null; placement: string | null }
+    {
+      working: boolean;
+      deadline: number | null;
+      placement: string | null;
+      endedAt: number | null;
+    }
   >();
   const returns = new Map<string, number>();
   const listeners = new Set<() => void>();
@@ -295,8 +300,11 @@ export function createInboxReturnTracker() {
             ? (previous.deadline ?? at + WORKING_EXIT_GRACE_MS)
             : null;
         const working = actual || (deadline !== null && deadline > at);
-        if (previous?.working && !working) returns.set(key, at);
-        states.set(key, { working, deadline: working ? deadline : null, placement });
+        // A run end this client missed (asleep, offline) is already in the sort as completedAt;
+        // stamping it now would order it by when the client woke, unlike every other client.
+        const missedRunEnd = endedLongAgo && previous !== undefined && previous.endedAt !== endedAt;
+        if (previous?.working && !working && !missedRunEnd) returns.set(key, at);
+        states.set(key, { working, deadline: working ? deadline : null, placement, endedAt });
       }
       for (const key of states.keys()) {
         if (!present.has(key)) {
