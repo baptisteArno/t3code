@@ -200,6 +200,7 @@ function ColumnRow(props: {
   onPick: () => void;
 }) {
   const gt = useGT();
+  const picker = use(DockedPickerContext);
   const rowProps = {
     type: "button",
     role: "radio",
@@ -212,6 +213,14 @@ function ColumnRow(props: {
     tabIndex: props.tabStop ? 0 : -1,
     className: COLUMN_ROW,
     onClick: props.onPick,
+    // Enter ends the pick and hands focus back to the composer; a click or Space keeps it open.
+    onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      event.preventDefault();
+      props.onPick();
+      picker.close();
+    },
   } as const;
   const content = (
     <>
