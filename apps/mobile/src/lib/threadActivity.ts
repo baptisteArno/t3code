@@ -1604,7 +1604,6 @@ function latestRunsEqual(left: ThreadFeedLatestRun | null, right: ThreadFeedLate
 function staysOutOfFold(entry: ThreadFeedEntry, responses: ThreadResponses): boolean {
   return (
     entry.type === "html-render" ||
-    entry.type === "sent-message" ||
     entry.type === "mcp-app" ||
     (entry.type === "activity-group" &&
       entry.activities.some(
@@ -1875,6 +1874,9 @@ export function deriveThreadFeedPresentation(
   const zenAnswerIds = zen
     ? zenAnswerMessageIds(feed, responses, start, answering, answering ? activeRunId : null)
     : null;
+  const zenAnsweringFrom = zen && answering ? feed.findLastIndex(startsRun) + 1 : feed.length;
+  const zenAnsweringResponseRunId =
+    zen && answering && activeRunId !== null ? responses.responseRunId(activeRunId) : null;
   for (let index = start; index < feed.length; index += 1) {
     let entry = feed[index]!;
     if (
@@ -1894,6 +1896,16 @@ export function deriveThreadFeedPresentation(
       const shown = activityGroupForVisibility(entry, toolCallVisibility);
       if (shown === null) continue;
       entry = shown;
+    } else if (
+      // Zen never folds, so text sent mid-turn leaves once its response stops working.
+      zen &&
+      entry.type === "sent-message" &&
+      index < zenAnsweringFrom &&
+      (zenAnsweringResponseRunId === null ||
+        entry.runId === null ||
+        responses.responseRunId(entry.runId) !== zenAnsweringResponseRunId)
+    ) {
+      continue;
     } else if (
       zenAnswerIds !== null &&
       entry.type === "message" &&
