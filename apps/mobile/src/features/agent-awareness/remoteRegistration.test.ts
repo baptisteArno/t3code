@@ -358,6 +358,36 @@ describe("makeRelayDeviceRegistrationRequest", () => {
     });
   });
 
+  it("asks the push service for quick replies only when notifications wait for need", () => {
+    const preferencesFor = (preferences: {
+      readonly notifyOnlyWhenNeeded?: boolean;
+      readonly inboxQuickReplyMinutes?: number;
+    }) =>
+      makeRelayDeviceRegistrationRequest({
+        deviceId: "device-1",
+        label: "iPhone",
+        iosMajorVersion: 26,
+        notificationsEnabled: true,
+        preferences,
+      }).preferences;
+
+    expect(
+      preferencesFor({ notifyOnlyWhenNeeded: true, inboxQuickReplyMinutes: 10 }),
+    ).toMatchObject({
+      notifyOnApproval: true,
+      notifyOnCompletion: false,
+      notifyOnFailure: false,
+      needsYouQuickReplyMinutes: 10,
+    });
+    expect(preferencesFor({ inboxQuickReplyMinutes: 10 })).not.toHaveProperty(
+      "needsYouQuickReplyMinutes",
+    );
+    expect(preferencesFor({ inboxQuickReplyMinutes: 10 })).toMatchObject({
+      notifyOnCompletion: true,
+      notifyOnFailure: true,
+    });
+  });
+
   it.effect("registers one push-token listener per Live Activity across wrappers", () => {
     const addPushTokenListener = vi.fn();
     // getInstances() returns a new wrapper for the same native activity each call.

@@ -37,6 +37,12 @@ export const RelayAgentAwarenessPreferences = Schema.Struct({
   notifyOnInput: Schema.Boolean,
   notifyOnCompletion: Schema.Boolean,
   notifyOnFailure: Schema.Boolean,
+  /**
+   * Set when the device alerts only for threads that need it. The fork's push service then still
+   * alerts a completion that proposes a plan or answered within this many minutes of the user's
+   * message; the relay ignores it and follows notifyOnCompletion.
+   */
+  needsYouQuickReplyMinutes: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type RelayAgentAwarenessPreferences = typeof RelayAgentAwarenessPreferences.Type;
 
