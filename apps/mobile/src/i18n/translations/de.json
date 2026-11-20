@@ -3510,6 +3510,8 @@
   "0a3f122ccb7757c8": "Die Geräteeinstellung wurde nicht gespeichert. Die neue Einstellung gilt für: {environments}.",
   "d65f9a3ee3f07eb8": "Agentenaktivität",
   "9ddc5a1e3ae7dc5d": "Gerätebenachrichtigungen",
+  "36e9d40f2e36fe6f": "Nur wenn ein Thread dich braucht",
+  "6b4e8fb2ecff8940": "Nur bei einem Thread benachrichtigen, der auf deine Antwort, Freigabe oder deinen Plan wartet, oder der innerhalb von {minutes} Min. nach deiner Nachricht geantwortet hat (Schnellantwort-Fenster). Längere Läufe, Fehler und Gastanfragen bleiben stumm.",
   "3f5506ebb3736478": "Live-Updates der Agenten",
   "54c35365b4a741c4": "Laufende Agentenaktivität",
   "4a74d2a481496baa": "Live-Aktivitäten-Updates",

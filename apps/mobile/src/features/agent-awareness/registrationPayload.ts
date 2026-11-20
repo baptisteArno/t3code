@@ -1,4 +1,5 @@
 import type { RelayDeviceRegistrationRequest } from "@t3tools/contracts/relay";
+import { DEFAULT_INBOX_QUICK_REPLY_MINUTES } from "@t3tools/contracts/settings";
 
 import type { Preferences } from "../../persistence/mobile-preferences";
 import { supportsAgentAwarenessPush } from "./capabilities";
@@ -29,6 +30,9 @@ export function makeRelayDeviceRegistrationRequest(
   ),
 ): RelayDeviceRegistrationRequest {
   const pushAvailable = supportsAgentAwarenessPush();
+  // Only the fork's push service, which serves iOS, tells a quick reply from any completion.
+  const onlyWhenNeeded =
+    input.platform !== "android" && input.preferences.notifyOnlyWhenNeeded === true;
   const liveActivitiesEnabled =
     pushAvailable &&
     input.preferences.liveActivitiesEnabled !== false &&
@@ -51,8 +55,14 @@ export function makeRelayDeviceRegistrationRequest(
       notificationsEnabled: pushAvailable && input.notificationsEnabled,
       notifyOnApproval: true,
       notifyOnInput: true,
-      notifyOnCompletion: true,
-      notifyOnFailure: true,
+      notifyOnCompletion: !onlyWhenNeeded,
+      notifyOnFailure: !onlyWhenNeeded,
+      ...(onlyWhenNeeded
+        ? {
+            needsYouQuickReplyMinutes:
+              input.preferences.inboxQuickReplyMinutes ?? DEFAULT_INBOX_QUICK_REPLY_MINUTES,
+          }
+        : {}),
     },
   };
 }

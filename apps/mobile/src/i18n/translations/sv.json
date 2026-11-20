@@ -3511,6 +3511,8 @@
   "0a3f122ccb7757c8": "Enhetsinställningen sparades inte. Den nya inställningen tillämpades på: {environments}.",
   "d65f9a3ee3f07eb8": "Agentaktivitet",
   "9ddc5a1e3ae7dc5d": "Enhetsaviseringar",
+  "36e9d40f2e36fe6f": "Bara när en tråd behöver dig",
+  "6b4e8fb2ecff8940": "Avisera bara för en tråd som väntar på ditt svar, godkännande eller din plan, eller som svarade inom {minutes} min efter ditt meddelande (snabbsvarsfönster). Längre körningar, fel och gästförfrågningar förblir tysta.",
   "3f5506ebb3736478": "Liveuppdateringar från agenter",
   "54c35365b4a741c4": "Pågående agentaktivitet",
   "4a74d2a481496baa": "Uppdateringar av liveaktiviteter",

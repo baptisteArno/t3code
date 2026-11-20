@@ -46,7 +46,7 @@ import {
   getAgentLiveActivities,
   startAgentLiveActivity,
 } from "./agentLiveActivity";
-import { resolveCloudPublicConfig } from "../cloud/publicConfig";
+import { resolveCloudPublicConfig, resolvePushServiceConfig } from "../cloud/publicConfig";
 import { supportsAgentAwarenessPush } from "./capabilities";
 import { makeRelayDeviceRegistrationRequest, resolveApsEnvironment } from "./registrationPayload";
 
@@ -171,7 +171,10 @@ function mergeAgentAwarenessRegistrationPreferences(
 }
 
 function readRelayConfig(): { readonly url: string } | null {
-  const relayUrl = resolveCloudPublicConfig().relay.url;
+  // The URL keys the saved registration, so moving to the push service registers again.
+  const relayUrl =
+    (Platform.OS === "ios" ? resolvePushServiceConfig()?.url : undefined) ??
+    resolveCloudPublicConfig().relay.url;
   if (!relayUrl) {
     return null;
   }
@@ -383,6 +386,7 @@ function registrationSignature(body: RelayDeviceRegistrationRequest): string {
     body.preferences.notifyOnInput,
     body.preferences.notifyOnCompletion,
     body.preferences.notifyOnFailure,
+    body.preferences.needsYouQuickReplyMinutes ?? "",
   ].join("|");
 }
 
@@ -489,6 +493,8 @@ const unregisterDeviceWithRelay = Effect.fn("remoteRegistration.unregisterDevice
 );
 
 function environmentPublishesAgentActivity(environmentId: EnvironmentId): boolean {
+  // The push service watches its environments itself, whether or not they publish to the relay.
+  if (Platform.OS === "ios" && resolvePushServiceConfig() !== null) return true;
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .agentActivityPublishing !== false
