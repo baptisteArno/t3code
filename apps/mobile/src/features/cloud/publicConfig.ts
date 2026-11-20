@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import type * as PushService from "@t3tools/client-runtime/relay/push-service";
 import { relayClerkTokenOptions } from "@t3tools/shared/relayAuth";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Schema from "effect/Schema";
@@ -71,6 +72,17 @@ export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig
       tracesToken: trimNonEmpty(extra?.observability?.tracesToken),
     },
   } satisfies CloudPublicConfig;
+}
+
+/** A self-hosted push service that replaces the relay's notification routes, when the build names one. */
+export function resolvePushServiceConfig(
+  extra:
+    | { readonly pushService?: UntrustedSection<PushService.PushServiceConfig> }
+    | undefined = Constants.expoConfig?.extra,
+): PushService.PushServiceConfig | null {
+  const url = normalizeSecureRelayUrl(trimNonEmpty(extra?.pushService?.url) ?? "");
+  const token = trimNonEmpty(extra?.pushService?.token);
+  return url && token ? { url, token } : null;
 }
 
 export function hasCloudPublicConfig(): boolean {
