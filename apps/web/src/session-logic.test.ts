@@ -1437,7 +1437,7 @@ describe("HTML renders in the timeline", () => {
     ]);
   });
 
-  it("shows a sent message in place through the turn fold, and only once sent", () => {
+  it("folds a sent message with the settled turn's work, and shows it only once sent", () => {
     const sentMessage = "Draft reply:\n\n> Thanks, Thursday works.";
     const send = (
       status: OrchestrationV2TurnItem["status"],
@@ -1456,7 +1456,36 @@ describe("HTML renders in the timeline", () => {
       runId,
       text: sentMessage,
     });
-    expect(rowsFor(entries, false)).toEqual(["message", "turn-fold", "sent-message", "message"]);
+    expect(rowsFor(entries, false)).toEqual(["message", "turn-fold", "message"]);
+    // Sent after the last reply, as when the run ends on a tool call, it folds all the same.
+    const sent = entries.find((entry) => entry.kind === "sent-message")!;
+    expect(rowsFor([...entries.filter((entry) => entry !== sent), sent], false)).toEqual([
+      "message",
+      "turn-fold",
+      "message",
+    ]);
+    expect(rowsFor(entries, true)).toEqual([
+      "message",
+      "turn-fold",
+      "work",
+      "sent-message",
+      "work",
+      "message",
+    ]);
+    const working = deriveMessagesTimelineRows({
+      timelineEntries: entries,
+      latestRun: {
+        runId,
+        status: "running",
+        startedAt: DateTime.formatIso(at(0)),
+        completedAt: null,
+      },
+      isWorking: true,
+      activeTurnStartedAt: DateTime.formatIso(at(0)),
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(working.some((row) => row.kind === "sent-message")).toBe(true);
     expect(turn(send("running")).some((entry) => entry.kind === "sent-message")).toBe(false);
   });
 
