@@ -1,3 +1,4 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { useGT, useMessages } from "gt-react-native";
 
 import { AppBar } from "../../components/ui/AppBar";
@@ -13,6 +14,7 @@ import {
   useThreadGitMenuDefinition,
   type ThreadGitControlsProps,
 } from "./ThreadGitControls";
+import { useThreadStateButtons } from "./ThreadStateButtons";
 
 export function ThreadHeader(props: {
   readonly title: string;
@@ -23,6 +25,7 @@ export function ThreadHeader(props: {
   readonly hasThreadCwd: boolean;
   readonly inspectorMode: ThreadInspectorMode | null;
   readonly onOpenFilesInspector: () => void;
+  readonly thread?: EnvironmentThreadShell;
 }) {
   const gt = useGT();
   const m = useMessages();
@@ -45,8 +48,9 @@ export function ThreadHeader(props: {
       ]
     : [];
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
+  const stateButtons = useThreadStateButtons(props.thread ?? null, props.hasThreadCwd);
 
-  return (
+  const bar = (
     <AppBar
       title={props.title}
       subtitle={props.subtitle}
@@ -61,9 +65,17 @@ export function ThreadHeader(props: {
             }
           : undefined
       }
-      actions={actions}
-      menus={menus}
+      actions={stateButtons?.actions ?? actions}
+      menus={stateButtons?.menus ?? menus}
       hideBottomBorder
     />
+  );
+  return stateButtons?.sheet ? (
+    <>
+      {bar}
+      {stateButtons.sheet}
+    </>
+  ) : (
+    bar
   );
 }

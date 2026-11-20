@@ -113,12 +113,13 @@ export function AppBar(props: AppBarProps) {
     usesNativeMailSearchToolbar;
   const trailingMenus = compactSearch ? (menus?.slice(1) ?? []) : (menus ?? []);
   // The Duo's vertical bar never overflows: items that don't fit slide under the workspace tabs,
-  // and a Live Activity pushes them down further. More than one tool shares one menu there.
+  // and a Live Activity pushes them down further. More than three tools share one menu there
+  // (fork: hiding tabs in Settings > Navigation tabs makes the room).
   const groupTrailing =
     usesNativeWorkspaceColumns &&
     isDuoDevice(deviceType) &&
     props.onClose === undefined &&
-    (props.actions?.length ?? 0) + trailingMenus.length > 1;
+    (props.actions?.length ?? 0) + trailingMenus.length > 3;
   const actions = groupTrailing ? [] : (props.actions ?? []);
   const visibleMenus: ReadonlyArray<AppBarMenu> = groupTrailing
     ? [
