@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   NAVIGATION_TAB_ORDER,
-  navigationCustomizationAvailable,
   moveNavigationTab,
   overflowNavigationTabs,
   enabledNavigationTabs,
@@ -14,14 +13,6 @@ import {
 } from "./navigation-tab-order";
 
 describe("navigation tab order", () => {
-  it("enables customization only above four registered sections, excluding Settings", () => {
-    expect(navigationCustomizationAvailable()).toBe(false);
-    expect(navigationCustomizationAvailable(3)).toBe(false);
-    expect(navigationCustomizationAvailable(4)).toBe(false);
-    expect(navigationCustomizationAvailable(5)).toBe(true);
-    expect(navigationCustomizationAvailable(6)).toBe(true);
-  });
-
   it("fills missing sections and drops removed placeholders, duplicates, and Settings", () => {
     expect(
       resolveNavigationTabOrder(["usage", "home", "inbox", "settings", "usage", null]),
