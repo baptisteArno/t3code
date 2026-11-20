@@ -3514,6 +3514,8 @@
   "0a3f122ccb7757c8": "Le réglage de l’appareil n’a pas été enregistré. Le nouveau réglage a été appliqué à : {environments}.",
   "d65f9a3ee3f07eb8": "Activité des agents",
   "9ddc5a1e3ae7dc5d": "Notifications de l’appareil",
+  "36e9d40f2e36fe6f": "Seulement quand un fil a besoin de vous",
+  "6b4e8fb2ecff8940": "Alerter seulement pour un fil qui attend votre réponse, votre approbation ou votre plan, ou qui a répondu dans les {minutes} min suivant votre message (fenêtre de réponse rapide). Les exécutions longues, les échecs et les demandes d'invités restent silencieux.",
   "3f5506ebb3736478": "Live Updates des agents",
   "54c35365b4a741c4": "Activité en cours des agents",
   "4a74d2a481496baa": "Mises à jour des Live Activities",
