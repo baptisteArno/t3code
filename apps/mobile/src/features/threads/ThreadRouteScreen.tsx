@@ -1050,6 +1050,7 @@ function ThreadRouteContent(
                 hasThreadCwd={selectedThreadCwd !== null}
                 inspectorMode={inspectorMode}
                 onOpenFilesInspector={handleOpenFilesInspector}
+                thread={selectedThread}
                 onReturnToThread={props.onReturnToThread}
               />
             )
