@@ -85,8 +85,11 @@ function lockBackgroundScroll(popup: HTMLElement | null) {
   };
 }
 
-/** What a docked effort column needs from its picker: the model it serves. */
-export const DockedPickerContext = createContext<{ modelLabel: string }>({ modelLabel: "" });
+/** What a docked effort column needs from its picker: the model it serves, and a way to close. */
+export const DockedPickerContext = createContext<{ modelLabel: string; close: () => void }>({
+  modelLabel: "",
+  close: () => {},
+});
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   environmentId: EnvironmentId | null;
@@ -124,7 +127,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerShortcuts?: string;
   /**
    * Docks an effort column beside the list and a footer under both. The popup then stays open
-   * until Escape or an outside press, and picking a model moves focus to its levels.
+   * until Escape, an outside press or Enter on a level, and picking a model moves focus to its
+   * levels.
    */
   effortColumn?: ReactNode;
   footer?: ReactNode;
@@ -472,7 +476,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         touchBackdrop
       >
         {props.effortColumn ? (
-          <DockedPickerContext value={{ modelLabel: triggerTitle }}>
+          <DockedPickerContext
+            value={{ modelLabel: triggerTitle, close: () => setIsMenuOpen(false) }}
+          >
             <div className="flex max-h-(--available-height) flex-col">
               {/* One fixed height, so a model with more options never resizes the popup. Short
                   windows shrink it and keep the footer. */}
