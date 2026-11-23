@@ -2443,6 +2443,29 @@ describe("locating a device id across hosts", () => {
     ),
   );
 
+  it.effect("opens a device another thread has open only for the threads it shares with", () =>
+    withTwoHosts((service) =>
+      Effect.gen(function* () {
+        const parent = ThreadId.make("thread-parent");
+        yield* open(service, "mac-mini", "MAC-UDID", parent);
+        const unheld = (sharesWith: ReadonlyArray<ThreadId>) =>
+          service.openUnheld(
+            { threadId, hostId: "mac-mini", deviceId: DeviceId.make("MAC-UDID"), platform: "ios" },
+            {},
+            sharesWith,
+          );
+        expect(yield* unheld([]).pipe(Effect.flip)).toMatchObject({
+          _tag: "DeviceHeldError",
+          hostId: "mac-mini",
+          deviceId: "MAC-UDID",
+        });
+        expect(yield* unheld([parent])).toMatchObject({ threadId, deviceId: "MAC-UDID" });
+        // Once open here, reopening it is not refused.
+        expect(yield* unheld([])).toMatchObject({ threadId, deviceId: "MAC-UDID" });
+      }),
+    ),
+  );
+
   it.effect("finds no session for a device this thread has not opened", () =>
     withTwoHosts((service) =>
       Effect.gen(function* () {
