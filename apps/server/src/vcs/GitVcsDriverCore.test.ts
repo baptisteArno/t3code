@@ -197,7 +197,9 @@ it.effect("runs background Git in its own lane so user commands never queue behi
     }).pipe(Effect.forkChild);
 
     yield* TestClock.adjust("2 seconds");
-    const started = yield* Queue.takeAll(starts);
+    // Each start first does real filesystem work the test clock does not wait for, so wait for the
+    // six starts the lanes allow. A foreground command stuck behind background work never starts.
+    const started = yield* Effect.forEach(Array.from({ length: 6 }), () => Queue.take(starts));
     assert.deepStrictEqual([...started].toSorted(), [
       "background",
       "background",
