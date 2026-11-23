@@ -10,6 +10,25 @@ const TARGETS_DIR = "device/targets";
 const STALE_RUNTIME =
   "This agent-device command is out of date because T3 Code moved or updated its runtime. Call device_open again for a fresh one.";
 
+const IN_USE_ADVICE =
+  "Another T3 Code thread or agent holds this device; do not reuse its --session or close it. Call device_list, which names the thread that has each device open, and device_open a free device. If none is free, ";
+
+/**
+ * What the launcher prints in place of agent-device's DEVICE_IN_USE advice, which is to reuse or
+ * close the holder's session: another T3 thread owns it. `waited` is agent-device's note of a spent --wait.
+ */
+export const deviceInUseAdvice = (waited?: string) =>
+  waited === undefined
+    ? `${IN_USE_ADVICE}rerun this open with --wait <ms> or tell the user which thread holds it.`
+    : `${waited}${IN_USE_ADVICE}tell the user which thread holds it.`;
+
+/**
+ * What the launcher prints in place of the advice on another daemon's claim, whose `device status`
+ * it refuses: the holder is likely a T3 Code server on another environment, which no tool here sees.
+ */
+export const deviceClaimedAdvice =
+  "Another agent-device daemon claims this device, likely T3 Code on another environment; this server cannot see which thread. Do not release or take it over. device_open another device, or tell the user about the claim this error names.";
+
 const quoteShell = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 
 /** agent-device 0.21.41's flags that take a value, so the launcher can find the command past them. */
@@ -224,7 +243,33 @@ const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
 delete env.AGENT_DEVICE_DAEMON_BASE_URL;
 delete env.AGENT_DEVICE_DAEMON_AUTH_TOKEN;
 delete env.AGENT_DEVICE_CONFIG;
-const child = spawn(${JSON.stringify(node)}, [entry, ...command], { stdio: "inherit", env });
+const child = spawn(${JSON.stringify(node)}, [entry, ...command], { stdio: ["inherit", "inherit", "pipe"], env });
+// agent-device 0.21.41 ends the error line with "Next: <advice>"; older releases print "Hint: <advice>" below it.
+// Another daemon's claim ("owned by session") gets its own advice: --wait only watches this daemon.
+const heldError = /^Error \\(DEVICE_IN_USE[^)]*\\): .*(in use by (?:workspace )?session "|owned by session "|has an ownership claim that could not be verified)/;
+const waitedAdvice = /^(Waited \\d+ms for this device and it stayed busy\\. )?.*$/;
+const advice = (kind, rest) => {
+  if (!kind.startsWith("in use")) return ${JSON.stringify(deviceClaimedAdvice)};
+  const waited = waitedAdvice.exec(rest)[1];
+  return waited ? waited + ${JSON.stringify(deviceInUseAdvice(""))} : ${JSON.stringify(deviceInUseAdvice())};
+};
+let heldKind;
+const rewrite = line => {
+  const kind = heldError.exec(line)?.[1];
+  const hint = heldKind !== undefined && line.startsWith("Hint: ");
+  const previous = heldKind;
+  heldKind = kind;
+  if (kind) { const next = line.indexOf(" Next: "); return next < 0 ? line : line.slice(0, next + 7) + advice(kind, line.slice(next + 7)); }
+  return hint ? "Hint: " + advice(previous, line.slice(6)) : line;
+};
+let pending = "";
+child.stderr.setEncoding("utf8");
+child.stderr.on("data", chunk => {
+  const lines = (pending + chunk).split("\\n");
+  pending = lines.pop();
+  for (const line of lines) process.stderr.write(rewrite(line) + "\\n");
+});
+child.stderr.on("end", () => { if (pending) process.stderr.write(rewrite(pending)); });
 child.on("error", error => { console.error(error.message); process.exitCode = 1; });
 child.on("exit", code => { process.exitCode = code ?? 1; });
 `;

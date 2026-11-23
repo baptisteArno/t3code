@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DeviceHostUnavailableError,
   DeviceId,
+  DeviceNotFoundError,
   EnvironmentId,
   ProviderInstanceId,
   ThreadId,
@@ -14,6 +15,7 @@ import { McpSchema, McpServer } from "effect/ai";
 
 import * as ServerConfig from "../config.ts";
 import * as DeviceService from "../device/DeviceService.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -116,7 +118,7 @@ const layerDeviceServiceMock = Layer.mock(DeviceService.DeviceService)({
   state: Effect.succeed(state),
   list: Effect.succeed(state),
   agentReadinessIfSupported: () => Effect.succeed(readiness),
-  open: (input) =>
+  openUnheld: (input) =>
     Effect.succeed({
       threadId: input.threadId,
       hostId: "local",
@@ -249,7 +251,7 @@ it.effect("rejects unavailable agent access before booting or opening a device",
       Effect.fail(
         new DeviceHostUnavailableError({ hostId: "local", reason: "Agent access is disabled." }),
       ),
-    open: () => Effect.die("Must not boot or register a device when agent access fails"),
+    openUnheld: () => Effect.die("Must not boot or register a device when agent access fails"),
   });
   return Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
@@ -298,7 +300,7 @@ it.effect("device_open reports a failed host's setup error instead of no devices
     state: Effect.succeed(failedState),
     list: Effect.succeed(failedState),
     locateDevice: () => Effect.succeedNone,
-    open: () => Effect.die("Must not open a device on a host whose setup failed"),
+    openUnheld: () => Effect.die("Must not open a device on a host whose setup failed"),
   });
   return Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
@@ -400,6 +402,7 @@ describe("device targeting across hosts", () => {
       ) => Effect.Effect<McpSchema.CallToolResult, McpSchema.McpErrorBase, McpServer.McpServer>;
     }) => Effect.Effect<A, E, McpServer.McpServer>,
     overrides: Partial<DeviceService.DeviceService["Service"]> = {},
+    threads = McpToolAccessTestkit.liveThreadsLayer,
   ) => {
     const opened: Array<{ hostId: string; deviceId: string }> = [];
     const closed: Array<{ hostId?: string | undefined; deviceId?: string | undefined }> = [];
@@ -407,7 +410,7 @@ describe("device targeting across hosts", () => {
       state: Effect.succeed(multiHostState),
       list: Effect.succeed({ ...multiHostState, sessions }),
       agentReadinessIfSupported: () => Effect.succeed(readiness),
-      open: (input) =>
+      openUnheld: (input) =>
         Effect.sync(() => {
           opened.push({ hostId: input.hostId ?? "local", deviceId: input.deviceId });
           return session(input.hostId ?? "local", input.deviceId, input.platform);
@@ -465,7 +468,7 @@ describe("device targeting across hosts", () => {
       Effect.provide(
         McpHttpServer.layerDeviceToolkit.pipe(
           Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
-          Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
+          Layer.provideMerge(threads),
           Layer.provide(layerDevices),
           Layer.provide(layerProjectsMock),
           Layer.provide(
@@ -504,6 +507,205 @@ describe("device targeting across hosts", () => {
     ),
   );
 
+  describe("devices another thread has open", () => {
+    const designReview = ThreadId.make("thread-design-review");
+    const macSpare = { ...macIphone, id: "MAC-SPARE", name: "iPhone 17", booted: false };
+    const designSession = { ...session("mac-mini", "MAC-UDID", "ios"), threadId: designReview };
+    const held = (devices = [...multiHostState.devices, macSpare], sessions = [designSession]) => {
+      const listed = Effect.succeed({ ...multiHostState, devices, sessions });
+      return { list: listed, state: listed };
+    };
+
+    it.effect("opens a free device instead of the booted one another thread holds", () =>
+      run(
+        [],
+        ({ opened, call }) =>
+          Effect.gen(function* () {
+            const result = yield* call("device_open", { platform: "ios", hostId: "mac-mini" });
+            expect(result.isError).toBe(false);
+            expect(opened).toEqual([{ hostId: "mac-mini", deviceId: "MAC-SPARE" }]);
+            const listed = yield* call("device_list", { hostId: "mac-mini" });
+            expect(listed.structuredContent).toMatchObject({
+              inOtherThreads: [
+                {
+                  hostId: "mac-mini",
+                  deviceId: "MAC-UDID",
+                  threadId: designReview,
+                  threadLink: expect.stringContaining("[thread-design-review]("),
+                },
+              ],
+            });
+          }),
+        held(),
+      ),
+    );
+
+    it.effect("refuses a held device, naming its thread and the free ones, never its session", () =>
+      run(
+        [],
+        ({ opened, call }) =>
+          Effect.gen(function* () {
+            const named = yield* call("device_open", { deviceId: "MAC-UDID" });
+            expect(named.isError).toBe(true);
+            expect(text(named)).toContain(
+              "iPhone 17 Pro (MAC-UDID) is open in [thread-design-review](",
+            );
+            expect(text(named)).toContain(
+              "Free ios devices on 'Mac Mini' (hostId mac-mini): iPhone 17 (MAC-SPARE).",
+            );
+            expect(text(named)).not.toContain("--session");
+            expect(opened).toEqual([]);
+          }),
+        held(),
+      ),
+    );
+
+    it.effect("refuses when every device of the platform is held", () =>
+      run(
+        [],
+        ({ opened, call }) =>
+          Effect.gen(function* () {
+            const result = yield* call("device_open", { platform: "ios", hostId: "mac-mini" });
+            expect(result.isError).toBe(true);
+            expect(text(result)).toContain(
+              "Every ios device on host mac-mini is open in another thread: iPhone 17 Pro (MAC-UDID) in [thread-design-review](",
+            );
+            expect(opened).toEqual([]);
+            // With one platform held, the other is the only choice.
+            const either = yield* call("device_open", { hostId: "mac-mini" });
+            expect(either.isError).toBe(false);
+            expect(opened).toEqual([{ hostId: "mac-mini", deviceId: "Pixel_10" }]);
+          }),
+        held(multiHostState.devices),
+      ),
+    );
+
+    it.effect("lets a subagent drive the device its parent holds, in the parent's session", () => {
+      const bound: Array<string> = [];
+      return run(
+        [],
+        ({ opened, call }) =>
+          Effect.gen(function* () {
+            const result = yield* call("device_open", { deviceId: "MAC-UDID" });
+            expect(result.isError).toBe(false);
+            expect(opened).toEqual([{ hostId: "mac-mini", deviceId: "MAC-UDID" }]);
+            // agent-device lets one session drive a device.
+            expect(bound).toEqual([designReview, designReview]);
+            const listed = yield* call("device_list", {});
+            expect(listed.structuredContent).toMatchObject({ inOtherThreads: [] });
+          }),
+        {
+          ...held(),
+          agentTarget: (target) =>
+            Effect.sync(() => {
+              bound.push(target.threadId);
+              return { agentDeviceId: "MAC-UDID", session: "parent-device", args: [] };
+            }),
+          agentLauncher: (target) =>
+            Effect.sync(() => {
+              bound.push(target.threadId);
+              return Option.some("/state/device/targets/parent-device/agent-device");
+            }),
+        },
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: (id) =>
+            Effect.succeed({
+              ...McpToolAccessTestkit.liveThreadShell(id),
+              ...(id === threadId
+                ? {
+                    lineage: {
+                      rootThreadId: designReview,
+                      parentThreadId: designReview,
+                      relationshipToParent: "subagent" as const,
+                    },
+                  }
+                : {}),
+            }),
+        }),
+      );
+    });
+
+    it.effect.each([
+      [
+        "another thread opened it first",
+        new DeviceService.DeviceHeldError({
+          hostId: "mac-mini",
+          deviceId: DeviceId.make("MAC-UDID"),
+        }),
+      ],
+      [
+        "its id changed while another thread booted it",
+        new DeviceNotFoundError({ hostId: "mac-mini", deviceId: DeviceId.make("MAC-UDID") }),
+      ],
+    ] as const)("picks again when the chosen device is gone because %s", ([, lost]) => {
+      const tried: Array<string> = [];
+      let lists = 0;
+      const devices = [...multiHostState.devices, macSpare];
+      return run(
+        [],
+        ({ call }) =>
+          Effect.gen(function* () {
+            const result = yield* call("device_open", { platform: "ios", hostId: "mac-mini" });
+            expect(result.isError).toBe(false);
+            expect(tried).toEqual(["MAC-UDID", "MAC-SPARE"]);
+          }),
+        {
+          // The first listing predates the other thread's open.
+          list: Effect.sync(() => ({
+            ...multiHostState,
+            devices,
+            sessions: lists++ === 0 ? [] : [designSession],
+          })),
+          openUnheld: (input) => {
+            tried.push(input.deviceId);
+            return tried.length === 1
+              ? Effect.fail(lost)
+              : Effect.succeed(session(input.hostId ?? "local", input.deviceId, input.platform));
+          },
+        },
+      );
+    });
+
+    it.effect("keeps a device this thread has open its own when a subagent shares it", () =>
+      run(
+        [],
+        ({ opened, call }) =>
+          Effect.gen(function* () {
+            const listed = yield* call("device_list", {});
+            expect(listed.structuredContent).toMatchObject({ inOtherThreads: [] });
+            const reopened = yield* call("device_open", { deviceId: "MAC-UDID" });
+            expect(reopened.isError).toBe(false);
+            expect(opened).toEqual([{ hostId: "mac-mini", deviceId: "MAC-UDID" }]);
+          }),
+        held(undefined, [designSession, session("mac-mini", "MAC-UDID", "ios")]),
+      ),
+    );
+
+    it.effect(
+      "leaves an Expo catalog entry free while another thread starts a device from it",
+      () =>
+        run(
+          [],
+          ({ opened, call }) =>
+            Effect.gen(function* () {
+              const result = yield* call("device_open", {
+                deviceId: "MAC-UDID",
+                hostId: "mac-mini",
+              });
+              expect(result.isError).toBe(false);
+              expect(opened).toEqual([{ hostId: "mac-mini", deviceId: "MAC-UDID" }]);
+            }),
+          {
+            list: Effect.succeed({
+              ...multiHostState,
+              hosts: [...state.hosts, { ...macHost, kind: "eas" as const }],
+              bootingDevices: [{ ...macIphone, threadId: designReview }],
+            }),
+          },
+        ),
+    );
+  });
+
   it.effect("opens a device id that exists only on another host", () =>
     run([], ({ opened, call }) =>
       Effect.gen(function* () {
@@ -531,7 +733,7 @@ describe("device targeting across hosts", () => {
           expect(targets).toEqual(["emulator-5554", "emulator-5554"]);
         }),
       {
-        open: (input) =>
+        openUnheld: (input) =>
           Effect.succeed(session(input.hostId ?? "local", "emulator-5554", "android")),
         agentTarget: (target) =>
           Effect.sync(() => {
