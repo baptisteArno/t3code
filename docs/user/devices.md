@@ -27,6 +27,8 @@ Enable **Settings → Devices → Agents can use devices** so agents can drive d
 
 When an agent opens a device, it floats over chat by default (disable **Settings → Browser → Auto-show floating preview** to open in the right panel instead). On mobile, tap the device button above the composer to watch and interact.
 
+A device stays with the thread that has it open. An agent asking for any device gets one no other thread has open; an agent asking for a held one is told which thread holds it, so you can close it there. A subagent can use the device its parent thread opened.
+
 ## Remote connections
 
 Device video streams through the environment server (works over LAN, Tailscale, and T3 Connect). Live video requires HTTPS or `localhost`—plain HTTP remote origins fall back to still images on iOS and disable video on Android (except Expo Simulators).

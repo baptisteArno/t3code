@@ -638,13 +638,25 @@ export const DeviceToolListResult = Schema.Struct({
   hosts: Schema.Array(DeviceHostSummary),
   devices: Schema.Array(DeviceSummary),
   open: Schema.Array(Schema.Struct({ hostId: DeviceHostId, deviceId: DeviceId })),
+  /** Devices another thread has open, which `device_open` refuses. Older servers omit it. */
+  inOtherThreads: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        hostId: DeviceHostId,
+        deviceId: DeviceId,
+        threadId: ThreadId,
+        threadLink: Schema.String,
+      }),
+    ),
+  ),
 });
 export type DeviceToolListResult = typeof DeviceToolListResult.Type;
 
 export const DeviceToolOpenInput = Schema.Struct({
   deviceId: Schema.optional(
     DeviceId.annotate({
-      description: "Device id from `device_list`. Default: the booted or last used device.",
+      description:
+        "Device id from `device_list`. Default: one no other thread has open, booted first.",
     }),
   ),
   platform: Schema.optional(

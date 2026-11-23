@@ -690,7 +690,8 @@ it.effect("refuses an open on a device another thread's agent-device session hol
     assert.deepEqual(tools.owners, [
       { deviceId: IPHONE, threadId: "acme-design-review", session: owner },
     ]);
-    // T3 has no cross-thread gate: device_open succeeds, and device_list shows only this thread.
+    // The owner is not a session this T3 server opened, so device_open succeeds and device_list
+    // shows only this thread.
     const opened = json((yield* tools.call("device_open", { hostId: MAC, deviceId: IPHONE })).text);
     assert.deepEqual(json((yield* tools.call("device_list", {})).text).open, [
       { hostId: MAC, deviceId: IPHONE },
@@ -707,17 +708,19 @@ it.effect("refuses an open on a device another thread's agent-device session hol
     const history: Array<ShellCall> = [];
     const answer = (args: string, session?: string) =>
       tools.sessionError(history, line(args, session)) ?? "";
-    const inUse = `Error (DEVICE_IN_USE): Device is already in use by session "${owner}".\nHint: Run agent-device session list to inspect active sessions. To reuse this device, rerun the command with --session ${owner}. To open a new session on this device, first run agent-device close --session ${owner}.`;
+    // T3's launcher replaces agent-device's advice to reuse or close the owner's session.
+    const inUse = `Error (DEVICE_IN_USE): Device is already in use by session "${owner}".\nHint: Another T3 Code thread or agent holds this device; do not reuse its --session or close it.`;
+    assert.include(answer("open com.acme.app"), inUse);
     assert.include(
       answer("open com.acme.app"),
-      `${inUse} To wait for the device to free up, run the same open with --wait <ms>.\nDiagnostic ID: `,
+      "rerun this open with --wait <ms> or tell the user which thread holds it.\nDiagnostic ID: ",
     );
     assert.include(
       answer("open --wait 5000"),
-      `Error (DEVICE_IN_USE): Device is already in use by session "${owner}".\nHint: Waited 5000ms for this device and it stayed busy. Run agent-device session list`,
+      `Error (DEVICE_IN_USE): Device is already in use by session "${owner}".\nHint: Waited 5000ms for this device and it stayed busy. Another T3 Code thread`,
     );
     assert.notInclude(answer("open --wait 5000"), "--wait <ms>");
-    // The hint's reuse works, in the other thread's session.
+    // Reusing the owner's session still works, in the other thread's session.
     assert.equal(answer("screenshot /tmp/a.png", owner), "");
     assert.equal(answer("open com.acme.app", owner), "");
     // A failed open starts nothing, in a compound call too.
@@ -843,7 +846,7 @@ it.effect(
       const refusal = told(`${piped} 2>&1 | tail -5`);
       assert.include(
         refusal,
-        `In the new call, \`${piped}\` drives Acme iPhone, ${IPHONE}, on build-mac, which session ${owner} holds: it fails with exit code 1, printing "Error (DEVICE_IN_USE): Device is already in use by session "${owner}"." and "Hint: Run agent-device session list to inspect active sessions. To reuse this device,`,
+        `In the new call, \`${piped}\` drives Acme iPhone, ${IPHONE}, on build-mac, which session ${owner} holds: it fails with exit code 1, printing "Error (DEVICE_IN_USE): Device is already in use by session "${owner}"." and "Hint: Another T3 Code thread or agent holds this device;`,
       );
       assert.notInclude(refusal, "no other session holds");
       // One call may try the held device, then fall back to the spare through an alias.
