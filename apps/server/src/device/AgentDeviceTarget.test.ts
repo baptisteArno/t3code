@@ -13,6 +13,8 @@ import * as Path from "effect/Path";
 import {
   agentDeviceCloseOutcome,
   bindAgentDeviceLauncher,
+  deviceClaimedAdvice,
+  deviceInUseAdvice,
   ensureAgentDeviceShim,
   pruneAgentDeviceLaunchers,
 } from "./AgentDeviceShim.ts";
@@ -247,6 +249,79 @@ exec '${process.execPath.replaceAll("'", "'\"'\"'")}' "$@"
           ),
         );
       }
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(HostProcess.IsExecutable, false),
+      Effect.provideService(HostProcess.ExecutablePath, process.execPath),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    ),
+  );
+
+  it.effect("replaces agent-device's advice to reuse or close another thread's session", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-device-in-use-" });
+      const held =
+        'Error (DEVICE_IN_USE): Device is already in use by session "t3-c8a938e6efcb6fdc3b785dcd". Not dispatched.';
+      const takeOver =
+        "The holding session may belong to another agent or user. Only if that session is yours: reuse --session t3-c8a938e6efcb6fdc3b785dcd, or run agent-device close --session t3-c8a938e6efcb6fdc3b785dcd first.";
+      const waited = "Waited 5000ms for this device and it stayed busy. ";
+      const claimed =
+        'Error (DEVICE_IN_USE, DEVICE_CLAIM_LIVE_OWNER): iOS device UDID-1 is owned by session "t3-b" in workspace "/w".';
+      const unverified =
+        "Error (DEVICE_IN_USE, DEVICE_CLAIM_UNVERIFIABLE): iPhone 17 has an ownership claim that could not be verified.";
+      const busy =
+        "Error (DEVICE_IN_USE, DEVICE_EXECUTION_LOCK_BUSY): Another request is using UDID-1. Next: Retry once the other request finishes.";
+      const older = 'Error (DEVICE_IN_USE): Device is already in use by session "t3-b".';
+      // agent-device prints the summary first and last; older releases put the advice on a Hint line.
+      const printed = [
+        `${held} Next: ${takeOver}`,
+        "Log: unavailable (remote)",
+        `${claimed} Next: Inspect the owner with: agent-device device status`,
+        `${unverified} Next: Inspect the owner with: agent-device device status --stale`,
+        busy,
+        `${held} Next: ${waited}${takeOver}`,
+        older,
+        `Hint: ${takeOver}`,
+        "Hint: unrelated",
+      ];
+      const entryPath = path.join(dir, "cli.mjs");
+      // A line can reach the launcher in pieces.
+      yield* fs.writeFileString(
+        entryPath,
+        `const text = ${JSON.stringify(printed.join("\n"))};
+process.exitCode = 1;
+process.stderr.write(text.slice(0, 40), () => process.stderr.write(text.slice(40)));`,
+      );
+      const command = yield* bindAgentDeviceLauncher({
+        entryPath,
+        stateDir: dir,
+        session: "t3-a",
+        targetArgs: ["--config", "/h.json", "--session", "t3-a"],
+      });
+      yield* Effect.promise(() =>
+        expect(
+          exec(process.execPath, [
+            path.join(path.dirname(command), "agent-device-launcher.mjs"),
+            "open",
+            "com.acme.app",
+          ]),
+        ).rejects.toMatchObject({
+          code: 1,
+          stderr: [
+            `${held} Next: ${deviceInUseAdvice()}`,
+            "Log: unavailable (remote)",
+            `${claimed} Next: ${deviceClaimedAdvice}`,
+            `${unverified} Next: ${deviceClaimedAdvice}`,
+            busy,
+            `${held} Next: ${deviceInUseAdvice(waited)}`,
+            older,
+            `Hint: ${deviceInUseAdvice()}`,
+            "Hint: unrelated",
+          ].join("\n"),
+        }),
+      );
     }).pipe(
       Effect.scoped,
       Effect.provideService(HostProcess.IsExecutable, false),

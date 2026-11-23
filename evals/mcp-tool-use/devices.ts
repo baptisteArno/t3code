@@ -440,19 +440,16 @@ const agentDeviceError = (
   ].join("\n");
 };
 const NO_SESSION_HINT = "Run open first or pass an explicit device selector.";
-/** agent-device's hint when another session holds the device; after --wait it says it waited. */
-const inUseHint = (owner: string, waitedMs?: number) =>
-  [
-    ...(waitedMs === undefined
-      ? []
-      : [`Waited ${Math.round(waitedMs)}ms for this device and it stayed busy.`]),
-    "Run agent-device session list to inspect active sessions.",
-    `To reuse this device, rerun the command with --session ${owner}.`,
-    `To open a new session on this device, first run agent-device close --session ${owner}.`,
-    ...(waitedMs === undefined
-      ? ["To wait for the device to free up, run the same open with --wait <ms>."]
-      : []),
-  ].join(" ");
+/**
+ * agent-device's hint when another session holds the device, as T3's launcher rewrites it; after
+ * --wait it says it waited.
+ */
+const inUseHint = (waitedMs?: number) =>
+  AgentDeviceShim.deviceInUseAdvice(
+    waitedMs === undefined
+      ? undefined
+      : `Waited ${Math.round(waitedMs)}ms for this device and it stayed busy. `,
+  );
 /** agent-device's refusal of an open on a device another session holds, unless --wait is bad. */
 const inUseError = (call: LauncherCall, owner: AgentDeviceOwner) => {
   const wait = call.flags.get("--wait");
@@ -460,7 +457,7 @@ const inUseError = (call: LauncherCall, owner: AgentDeviceOwner) => {
     ? {
         code: "DEVICE_IN_USE",
         message: `Device is already in use by session "${owner.session}".`,
-        hint: inUseHint(owner.session, wait === undefined ? undefined : Number(wait)),
+        hint: inUseHint(wait === undefined ? undefined : Number(wait)),
       }
     : undefined;
 };
@@ -761,6 +758,19 @@ export const makeDeviceTools = Effect.fn("evaluateMcpToolUse.makeDeviceTools")(f
         open: Effect.fn("DeviceService.DeviceService.open")((input, context) =>
           failing(service.open(input, context)),
         ),
+        // Refs from before device_open refused held devices have no openUnheld.
+        ...("openUnheld" in service
+          ? {
+              openUnheld: Effect.fn("DeviceService.DeviceService.openUnheld")(
+                (input, context, sharesWith) =>
+                  Effect.flatMap(Injected, (failure) =>
+                    failure === undefined
+                      ? service.openUnheld(input, context, sharesWith)
+                      : Effect.fail(failure),
+                  ),
+              ),
+            }
+          : {}),
         screenshot: Effect.fn("DeviceService.DeviceService.screenshot")((input) =>
           failing(service.screenshot(input)),
         ),

@@ -92,6 +92,21 @@ describe("device tool helpers", () => {
     );
   });
 
+  it("tells a subagent to leave its parent's cloud device running", () => {
+    const command = "/state/device/targets/t3-a/agent-device";
+    const parent = "[Design review](t3-thread://parent)";
+    for (const host of [{ kind: "eas" as const }, { kind: "simlock" as const }]) {
+      expect(agentDeviceQuickStart(device, [], command, host)).toContain(
+        `call device_close with hostId ${device.hostId} and deviceId ${device.id} and shutdown: true when you are done.`,
+      );
+      const shared = agentDeviceQuickStart(device, [], command, host, parent);
+      expect(shared).toContain(
+        `it stays open in ${parent}: when you are done, call device_close with hostId ${device.hostId} and deviceId ${device.id} and no shutdown`,
+      );
+      expect(shared).not.toContain("shutdown: true");
+    }
+  });
+
   it("reads PNG dimensions from the IHDR chunk", () => {
     const png = new Uint8Array(24);
     new DataView(png.buffer).setUint32(0, 0x89504e47);
