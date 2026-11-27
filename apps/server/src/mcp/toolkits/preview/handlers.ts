@@ -1,5 +1,9 @@
+import * as NodeOS from "node:os";
+
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import {
@@ -9,9 +13,11 @@ import {
   PreviewAutomationRecordingDesktopUpdateRequiredError,
   PreviewAutomationRecordingArtifact,
   PreviewAutomationActInputs,
+  PreviewAutomationTypeInput,
   OrchestratorMcpFailure,
   type ToolActivityIcon,
   type ThreadId,
+  type PreviewAutomationAction,
   type PreviewAutomationOperation,
   type PreviewAutomationOpenInput,
   type PreviewAutomationRecordingStatus,
@@ -22,6 +28,8 @@ import {
   type PreviewAutomationStatus,
   type PreviewTabId,
 } from "@t3tools/contracts";
+
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import {
   parseAttachmentUuid,
@@ -117,6 +125,58 @@ const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
   Schema.decodeUnknownEffect(schema),
 );
 
+const SECRET_FILE_MAX_BYTES = 4096;
+
+const invalidRequest = (message: string) =>
+  new OrchestratorMcpFailure({ code: "invalid_request", message });
+
+/**
+ * Reads and deletes a secret the agent's own code wrote, so only its path crosses MCP. Temp dirs
+ * and `request_secret` files only: a mistyped path elsewhere must not delete a user's key file.
+ */
+const takeSecretFile = Effect.fn("PreviewToolkit.takeSecretFile")(function* (secretFile: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const config = yield* ServerConfig.ServerConfig;
+  const refuse = (reason: string) =>
+    Effect.fail(invalidRequest(`secretFile ${secretFile} ${reason}; nothing was typed.`));
+  if (!path.isAbsolute(secretFile)) return yield* refuse("is not an absolute path");
+  const real = (dir: string) => fileSystem.realPath(dir).pipe(Effect.option);
+  const roots = (yield* Effect.forEach(
+    [NodeOS.tmpdir(), "/tmp", path.join(config.secretsDir, "files")],
+    real,
+  )).flatMap(Option.toArray);
+  const parent = yield* real(path.dirname(secretFile));
+  const inRoot =
+    Option.isSome(parent) &&
+    roots.some((root) => parent.value === root || parent.value.startsWith(root + path.sep));
+  if (!inRoot) return yield* refuse("is not under /tmp, the system temp dir or a secret file dir");
+  const info = yield* fileSystem.lstat(secretFile).pipe(Effect.option);
+  if (Option.isNone(info) || info.value.type !== "File") {
+    return yield* refuse("is not a regular file");
+  }
+  const uid = yield* HostProcess.UserId;
+  if (
+    !(yield* HostProcess.isWindows) &&
+    ((info.value.mode & 0o077) !== 0 || Option.getOrUndefined(info.value.uid) !== uid)
+  ) {
+    return yield* refuse("must be yours with mode 600");
+  }
+  if (Number(info.value.size) > SECRET_FILE_MAX_BYTES) return yield* refuse("is over 4 KiB");
+  const contents = yield* fileSystem
+    .readFileString(secretFile)
+    .pipe(Effect.mapError(() => invalidRequest(`secretFile ${secretFile} could not be read.`)));
+  // Deleted before typing, so the value never outlives this call, even when typing fails.
+  yield* fileSystem
+    .remove(secretFile)
+    .pipe(Effect.mapError(() => invalidRequest(`secretFile ${secretFile} could not be deleted.`)));
+  const value = contents.replace(/\r?\n$/u, "");
+  if (value === "") return yield* refuse("was empty");
+  return value;
+});
+
+const decodeTypeInput = Schema.decodeUnknownEffect(PreviewAutomationTypeInput);
+
 const UploadedRecordingArtifact = Schema.Struct({
   ...PreviewAutomationRecordingArtifact.fields,
   uploadedAttachmentId: Schema.optional(Schema.String),
@@ -189,6 +249,18 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
   return { ...recording, id: finalId, path: finalPath };
 });
 
+const actOn = (action: PreviewAutomationAction, input: { readonly [key: string]: unknown }) =>
+  decodeActInput[action](input).pipe(
+    Effect.mapError((cause) => invalidRequest(cause.message)),
+    Effect.flatMap((decoded) =>
+      invokeTargeted<object>(
+        action,
+        decoded,
+        "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
+      ),
+    ),
+  );
+
 const handlers = {
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("dialog", input),
@@ -233,19 +305,24 @@ const handlers = {
       },
     );
   }),
-  preview_act: McpToolAccess.actsAsCaller(({ action, ...input }) =>
-    decodeActInput[action](input).pipe(
-      Effect.mapError(
-        (cause) => new OrchestratorMcpFailure({ code: "invalid_request", message: cause.message }),
-      ),
-      Effect.flatMap((decoded) =>
-        invokeTargeted<object>(
-          action,
-          decoded,
-          "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
-        ),
-      ),
-    ),
+  preview_act: McpToolAccess.actsAsCaller(({ action, secretFile, ...input }) =>
+    secretFile === undefined
+      ? actOn(action, input)
+      : Effect.gen(function* () {
+          if (action !== "type" || input.text !== undefined) {
+            return yield* invalidRequest("secretFile goes with action 'type' and no text.");
+          }
+          // Decoded before the secret joins it, so a decoding error never quotes the value.
+          const decoded = yield* decodeTypeInput({ ...input, text: "" }).pipe(
+            Effect.mapError((cause) => invalidRequest(cause.message)),
+          );
+          const text = yield* takeSecretFile(secretFile);
+          return yield* invokeTargeted<object>(
+            "type",
+            { ...decoded, text, secret: true },
+            decoded.timeoutMs,
+          );
+        }),
   ),
   preview_evaluate: McpToolAccess.actsAsCaller(({ tabId, ...input }) =>
     invoke<unknown>("evaluate", input, undefined, tabId).pipe(

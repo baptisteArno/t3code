@@ -941,6 +941,32 @@ const focusTextTarget = (target: FocusCandidate | null) => {
   return active != null && (active === element || element.contains(active));
 };
 
+type SecretTarget = FocusCandidate & {
+  closest(selector: string): { readonly control: SecretTarget | null } | null;
+  readonly style: { setProperty(name: string, value: string, priority: string): void };
+};
+
+// Serialized into the page. Dots before the first key keep a secret out of frames, snapshots and recordings.
+const hideValue = (target: SecretTarget | null) => {
+  const scope = globalThis as unknown as {
+    document: { activeElement: SecretTarget | null };
+    getComputedStyle(element: SecretTarget): { getPropertyValue(name: string): string };
+  };
+  let element = target ?? scope.document.activeElement;
+  if (target === null) {
+    while (element?.shadowRoot?.activeElement)
+      element = element.shadowRoot.activeElement as SecretTarget;
+  } else if (!["INPUT", "TEXTAREA"].includes(target.tagName) && !target.isContentEditable) {
+    element = target.closest("label")?.control ?? null;
+  }
+  if (element == null) return false;
+  const dots = scope.getComputedStyle(element).getPropertyValue("-webkit-text-security");
+  if (element.type !== "password" && (dots === "none" || dots === "")) {
+    element.style.setProperty("-webkit-text-security", "disc", "important");
+  }
+  return true;
+};
+
 // Playwright's own timeout covers finding the element, not a page that stops answering the evaluation.
 const pageAnswer = async <A>(answer: Promise<A>, timeout: number) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -998,19 +1024,49 @@ const typeKeys = async (page: Page, text: string, timeoutMs: number, deadline: n
   }
 };
 
-export const type = async (page: Page, input: PreviewAutomationTypeInput) => {
+const notEditable = () =>
+  new ServerBrowserOperationError({
+    tag: "PreviewAutomationTargetNotEditableError",
+    message: "The target is not an enabled text field, so no text was typed.",
+  });
+
+export const type = (page: Page, input: PreviewAutomationTypeInput) =>
+  input.secret
+    ? typeText(page, input).catch((cause: unknown) => {
+        const said = cause instanceof Error ? `${cause.message}\n${cause.stack}` : String(cause);
+        if (!said.includes(input.text)) throw cause;
+        throw new ServerBrowserOperationError({
+          tag: "PreviewAutomationExecutionError",
+          message: "Typing the secret failed; the field may hold part of it.",
+        });
+      })
+    : typeText(page, input);
+
+const typeText = async (page: Page, input: PreviewAutomationTypeInput) => {
   // One deadline across steps keeps the reply inside the broker's grace; Playwright reads 0 as none.
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
   const remaining = () => Math.max(1, deadline - Date.now());
   const locator = targetLocator(page, input);
+  const hide = async () => {
+    if (!input.secret) return;
+    const hidden =
+      locator === null
+        ? await pageAnswer(page.evaluate(hideValue, null), remaining())
+        : await locator.evaluate(hideValue, undefined, { timeout: remaining() });
+    if (hidden !== true) throw notEditable();
+  };
   if (locator !== null && input.clear) {
     // Pickers and sliders take a value such as 2026-01-31 only from fill, and some reject an empty one.
     const timeout = remaining();
-    if (await pageAnswer(locator.evaluate(valueOnlyInput, undefined, { timeout }), timeout)) {
+    if (
+      !input.secret &&
+      (await pageAnswer(locator.evaluate(valueOnlyInput, undefined, { timeout }), timeout))
+    ) {
       await locator.fill(input.text, { timeout: remaining() });
       return;
     }
+    await hide();
     // fill follows a label to its control and leaves that control focused for the keys.
     await locator.fill("", { timeout: remaining() });
     await typeKeys(page, input.text, timeoutMs, deadline);
@@ -1021,12 +1077,8 @@ export const type = async (page: Page, input: PreviewAutomationTypeInput) => {
       ? // A `*:focus` locator needs Playwright's utility world, which some desktop tabs never get.
         await pageAnswer(page.evaluate(focusTextTarget, null), remaining())
       : await locator.evaluate(focusTextTarget, undefined, { timeout: remaining() });
-  if (focused !== true) {
-    throw new ServerBrowserOperationError({
-      tag: "PreviewAutomationTargetNotEditableError",
-      message: "The target is not an enabled text field, so no text was typed.",
-    });
-  }
+  if (focused !== true) throw notEditable();
+  await hide();
   if (input.clear) {
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Delete");

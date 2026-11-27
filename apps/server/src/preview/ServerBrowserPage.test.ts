@@ -5,6 +5,7 @@ import {
   type Browser,
   type BrowserContext,
   type CDPSession,
+  type Locator,
   type Page,
 } from "playwright-core";
 import {
@@ -438,6 +439,43 @@ describe("server browser element refs", () => {
     await ServerBrowserPage.type(page, { locator: "#t", text: "one\r\ntwo" });
     expect(await page.locator("#t").inputValue()).toBe("one\ntwo");
     expect(await page.locator("#sent").inputValue()).toBe("");
+  });
+
+  it("dots a plain field before typing a secret into it, so snapshots never show the value", async () => {
+    await page.setContent(
+      `<input id=user aria-label=Token><div id=host></div><iframe srcdoc="<input aria-label=child>"></iframe><script>host.attachShadow({mode:"open"}).innerHTML = "<input id=inner>";</script>`,
+    );
+    await page.frameLocator("iframe").getByRole("textbox").waitFor();
+    const dots = (field: Locator) =>
+      field.evaluate((element) =>
+        (
+          globalThis as unknown as {
+            getComputedStyle(element: unknown): { getPropertyValue(name: string): string };
+          }
+        )
+          .getComputedStyle(element)
+          .getPropertyValue("-webkit-text-security"),
+      );
+    await ServerBrowserPage.type(page, { locator: "#user", text: "dummy-secret-1", secret: true });
+    await page.locator("#host #inner").click();
+    await ServerBrowserPage.type(page, { text: "dummy-secret-2", secret: true });
+    const child = locators(
+      String((await takeSnapshot()).accessibilityTree)
+        .split("\n")
+        .find((line) => line.includes('textbox "child"')),
+    )[0]!;
+    await ServerBrowserPage.type(page, {
+      locator: child,
+      text: "dummy-secret-3",
+      clear: true,
+      secret: true,
+    });
+    expect(await page.locator("#user").inputValue()).toBe("dummy-secret-1");
+    expect(await dots(page.locator("#user"))).toBe("disc");
+    expect(await dots(page.locator("#host #inner"))).toBe("disc");
+    expect(await dots(page.frameLocator("iframe").getByRole("textbox"))).toBe("disc");
+    const result = await takeSnapshot();
+    expect(`${String(result.accessibilityTree)}${result.visibleText}`).not.toMatch(/dummy-secret/);
   });
 
   it("shows dotted fields as dots wherever their value appears, keeping text values and refs", async () => {

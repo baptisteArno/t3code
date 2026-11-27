@@ -45,13 +45,21 @@ export function recordingKeyLabel(input: RecordingKeyPress, isMac: boolean): str
   return modifiers.join(isMac ? "" : " + ");
 }
 
-/** Unknown iframe or closed-shadow focus is excluded because its field type cannot be checked. */
+/**
+ * Unknown iframe or closed-shadow focus is excluded because its field type cannot be checked.
+ * A field dotted by CSS counts as a password, as an agent's typed secret is.
+ */
 export function recordingKeysAreSensitive(document: Document): boolean {
   let element = document.activeElement;
   while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+  if (!element) return false;
+  const dots = element.ownerDocument?.defaultView
+    ?.getComputedStyle(element)
+    .getPropertyValue("-webkit-text-security");
   return (
-    element?.tagName === "IFRAME" ||
-    element?.tagName.includes("-") === true ||
-    element?.getAttribute("type")?.toLowerCase() === "password"
+    element.tagName === "IFRAME" ||
+    element.tagName.includes("-") ||
+    element.getAttribute("type")?.toLowerCase() === "password" ||
+    (dots !== undefined && dots !== "" && dots !== "none")
   );
 }

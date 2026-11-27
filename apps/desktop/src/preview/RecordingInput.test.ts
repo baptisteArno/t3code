@@ -10,6 +10,16 @@ describe("recording key privacy", () => {
     expect(sensitive({ shadowRoot: { activeElement: field("password") } })).toBe(true);
     expect(sensitive(field("text"))).toBe(false);
   });
+  it("excludes fields dotted by CSS", () => {
+    const styled = (dots: string) => ({
+      ...field("text"),
+      ownerDocument: {
+        defaultView: { getComputedStyle: () => ({ getPropertyValue: () => dots }) },
+      },
+    });
+    expect(sensitive(styled("disc"))).toBe(true);
+    expect(sensitive(styled("none"))).toBe(false);
+  });
   it("excludes iframe focus whose field cannot be inspected", () => {
     expect(sensitive({ tagName: "IFRAME" })).toBe(true);
     expect(sensitive({ tagName: "SECRET-FIELD" })).toBe(true);

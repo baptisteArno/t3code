@@ -394,6 +394,8 @@ export const PreviewAutomationTypeInput = Schema.Struct({
       description: "Clear the input first. Default false.",
     }),
   ),
+  /** Set by the server for `secretFile`: the field shows dots before any key lands. */
+  secret: Schema.optional(Schema.Boolean),
   timeoutMs: OptionalTimeoutMs,
 }).check(
   Schema.makeFilter(
@@ -460,6 +462,12 @@ export const PreviewAutomationActInput = Schema.Struct({
   button: Schema.optional(Schema.Literals(["left", "right", "middle"])),
   clickCount: Schema.optional(Schema.Int),
   text: Schema.optional(Schema.String),
+  secretFile: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "type only, instead of `text`: absolute path of an owner-only (mode 600) file under /tmp, the system temp dir, or a `request_secret` file. T3 types its contents, minus one trailing newline, and deletes it.",
+    }),
+  ),
   clear: Schema.optional(Schema.Boolean),
   values: Schema.optional(Schema.Array(Schema.String)),
   source: Schema.optional(Locator),

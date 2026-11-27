@@ -25,3 +25,4 @@ When an agent calls `request_secret`, T3 Code displays a private card in the thr
 
 - Enter a value (or pick a 1Password reference if configured and permitted) and click **Save securely**, or **Decline**.
 - Values never appear in conversation history. For T3 tools, the secret is passed directly without exposing it to the agent; for shell commands, the card tells you that the value is written to a private temporary file readable by the agent's commands for ~24 hours.
+- An agent can type such a file, or one its own command wrote from 1Password, into a sign-in page in the browser preview. The field shows dots from the first key, in the tab, screenshots and recordings, and the file is deleted once typed.

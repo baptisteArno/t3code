@@ -102,6 +102,93 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
   ),
 );
 
+const threadScope = {
+  environmentId: EnvironmentId.make("environment-1"),
+  requestNamespace: "provider-session-1",
+  thread: {
+    threadId: ThreadId.make("thread-1"),
+    providerSessionId: "provider-session-1",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
+  capabilities: new Set(["preview"] as const),
+  issuedAt: 1,
+};
+
+it.effect("preview_act types a secret file's value, masked, and deletes the file", () =>
+  Effect.gen(function* () {
+    const scope = yield* McpInvocationContext.McpInvocationContext;
+    const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const connected = yield* Deferred.make<void>();
+    const requests: PreviewAutomationRequest[] = [];
+    const events = yield* broker.connect({
+      clientId: "client-1",
+      environmentId: scope.environmentId,
+    });
+    yield* Stream.runForEach(events, (event) => {
+      if (event.type === "connected") return Deferred.succeed(connected, undefined);
+      requests.push(event.request);
+      return broker.respond({
+        clientId: "client-1",
+        connectionId: event.connectionId,
+        requestId: event.request.requestId,
+        ok: true,
+        result: event.request.operation === "status" ? { available: false } : undefined,
+      });
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(connected);
+    const toolkit = yield* PreviewStandardToolkit.pipe(
+      Effect.provide(McpToolAccess.HandlersLayer.layer(layerStandard)),
+    );
+    const act = (input: object) =>
+      toolkit
+        .handle("preview_act", { action: "type", ...input } as never)
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.result);
+    const dir = yield* fileSystem.makeTempDirectoryScoped({ directory: "/tmp" });
+    const secretFile = path.join(dir, "secret");
+    const write = (mode: number) =>
+      fileSystem
+        .writeFileString(secretFile, "dummy-pass\n")
+        .pipe(Effect.andThen(fileSystem.chmod(secretFile, mode)));
+
+    yield* write(0o644);
+    const loose = yield* act({ locator: "#pw", secretFile });
+    expect(loose._tag).toBe("Failure");
+    expect(yield* fileSystem.exists(secretFile)).toBe(true);
+    expect(yield* act({ locator: "#pw", secretFile, text: "x" })).toMatchObject({
+      _tag: "Failure",
+    });
+
+    yield* fileSystem.chmod(secretFile, 0o600);
+    const typed = yield* act({ locator: "#pw", secretFile, clear: true });
+    expect(typed._tag).toBe("Success");
+    expect(yield* fileSystem.exists(secretFile)).toBe(false);
+    expect(
+      requests.filter(({ operation }) => operation === "type").map(({ input }) => input),
+    ).toEqual([{ locator: "#pw", text: "dummy-pass", clear: true, secret: true }]);
+    expect(JSON.stringify(typed)).not.toContain("dummy-pass");
+
+    // Outside the temp and secret dirs nothing is read or deleted.
+    const outside = yield* fileSystem.makeTempDirectoryScoped({ directory: process.cwd() });
+    const elsewhere = path.join(outside, "key");
+    yield* fileSystem.writeFileString(elsewhere, "dummy-key", { mode: 0o600 });
+    expect((yield* act({ locator: "#pw", secretFile: elsewhere }))._tag).toBe("Failure");
+    expect(yield* fileSystem.exists(elsewhere)).toBe(true);
+  }).pipe(
+    Effect.scoped,
+    Effect.provideService(McpInvocationContext.McpInvocationContext, threadScope),
+    Effect.provide(
+      Layer.mergeAll(
+        PreviewAutomationBroker.layer,
+        liveThreadsLayer,
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-preview-secret-" }),
+      ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+    ),
+  ),
+);
+
 describe("claimPreviewRecording", () => {
   it.effect("overlapping and repeated claims return the same retained recording", () =>
     Effect.gen(function* () {
