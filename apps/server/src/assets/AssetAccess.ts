@@ -70,6 +70,7 @@ import {
   realPathWithoutNativeResolver,
   type OpenMediaFile,
 } from "./MediaFile.ts";
+import { findThreadImageCopy, keepThreadImage } from "./ThreadImageCopies.ts";
 import * as WorkspacePreviewRevisions from "./WorkspacePreviewRevisions.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
@@ -627,6 +628,27 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
   },
 );
 
+const finalizeThreadImageCopy = Effect.fn("AssetAccess.finalizeThreadImageCopy")(function* <
+  E,
+>(input: {
+  readonly error: E;
+  readonly requestedPath: string;
+  readonly resource: Extract<AssetResource, { readonly _tag: "media-file" }>;
+  readonly expiresAt: number;
+}) {
+  const copy = yield* findThreadImageCopy({
+    threadId: input.resource.threadId,
+    requestedPath: input.requestedPath,
+  });
+  if (copy === null) return yield* Effect.fail(input.error);
+  return yield* finalizeAbsoluteMediaFileAsset({
+    requestedPath: copy,
+    workspaceRoot: undefined,
+    resource: input.resource,
+    expiresAt: input.expiresAt,
+  }).pipe(Effect.mapError(() => input.error));
+});
+
 export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (input: {
   readonly resource: AssetResource;
   readonly workspaceRoot?: string;
@@ -646,30 +668,51 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
 
   switch (input.resource._tag) {
     case "media-file": {
-      let requestedPath = expandHomePath(
-        yield* toHostDrivePath(input.resource.path),
-        yield* HostProcess.HomeDirectory,
-      );
-      if (!path.isAbsolute(requestedPath)) {
-        if (!input.workspaceRoot) {
-          return yield* new AssetWorkspaceContextNotFoundError({ resource: input.resource });
-        }
-        const workspaceRoot = yield* workspacePaths
-          .normalizeWorkspaceRoot(input.workspaceRoot)
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new AssetWorkspaceRootNormalizationError({ resource: input.resource, cause }),
-            ),
-          );
-        requestedPath = path.resolve(workspaceRoot, requestedPath);
+      const resource = input.resource;
+      const homeDirectory = yield* HostProcess.HomeDirectory;
+      const writtenPath = expandHomePath(yield* toHostDrivePath(resource.path), homeDirectory);
+      // Unresolved, so the network path check sees a `//host` path as written.
+      const requestedPath = path.isAbsolute(writtenPath)
+        ? writtenPath
+        : input.workspaceRoot
+          ? // As `normalizeWorkspaceRoot` resolves it, so a removed worktree still finds its copies.
+            path.resolve(expandHomePath(input.workspaceRoot.trim(), homeDirectory), writtenPath)
+          : undefined;
+      if (requestedPath === undefined) {
+        return yield* new AssetWorkspaceContextNotFoundError({ resource });
       }
-      const finalized = yield* finalizeAbsoluteMediaFileAsset({
-        requestedPath,
-        workspaceRoot: input.workspaceRoot,
-        resource: input.resource,
-        expiresAt,
-      });
+      const copyKey = path.resolve(requestedPath);
+      const finalized = yield* Effect.gen(function* () {
+        if (!path.isAbsolute(writtenPath) && input.workspaceRoot) {
+          yield* workspacePaths
+            .normalizeWorkspaceRoot(input.workspaceRoot)
+            .pipe(
+              Effect.mapError(
+                (cause) => new AssetWorkspaceRootNormalizationError({ resource, cause }),
+              ),
+            );
+        }
+        return yield* finalizeAbsoluteMediaFileAsset({
+          requestedPath,
+          workspaceRoot: input.workspaceRoot,
+          resource,
+          expiresAt,
+        });
+      }).pipe(
+        Effect.tap((found) =>
+          keepThreadImage({
+            threadId: resource.threadId,
+            requestedPath: copyKey,
+            filePath: found.claims.filePath,
+          }),
+        ),
+        Effect.catchTags({
+          AssetWorkspaceAssetNotFoundError: (error) =>
+            finalizeThreadImageCopy({ error, requestedPath: copyKey, resource, expiresAt }),
+          AssetWorkspaceRootNormalizationError: (error) =>
+            finalizeThreadImageCopy({ error, requestedPath: copyKey, resource, expiresAt }),
+        }),
+      );
       claims = finalized.claims;
       fileName = finalized.fileName;
       imageDimensions = finalized.imageDimensions;

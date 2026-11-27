@@ -43,6 +43,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { parse as parseYaml } from "yaml";
 
 import * as ServerConfig from "./config.ts";
+import { threadIdFromImagesFolderName } from "./assets/ThreadImageCopies.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -114,6 +115,7 @@ const ORPHAN_WORKTREE_GRACE_MS = 60 * 60 * 1_000;
 
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const REPORT_ENTRY_LIMIT = 200;
+const THREAD_IMAGES_SETTLED_RETENTION_DAYS = 30;
 const isGitCommandError = Schema.is(GitCommandError);
 const errorCode = (error: PlatformError) =>
   error.cause instanceof Error && "code" in error.cause ? error.cause.code : undefined;
@@ -2008,6 +2010,47 @@ const make = Effect.gen(function* () {
     return removed;
   });
 
+  // Not in the report or settings: a new report kind or server setting would break official clients.
+  const cleanThreadImages = Effect.fn("StorageCleanup.cleanThreadImages")(function* (now: number) {
+    const root = config.threadImagesDir;
+    if (!(yield* fs.exists(root))) return;
+    const realRoot = yield* fs.realPath(root);
+    const realParent = yield* fs.realPath(path.dirname(root));
+    if (realRoot !== path.join(realParent, path.basename(root))) return;
+    let removedThreads = 0;
+    const rows = yield* sql<{
+      threadId: string;
+      deletedAt: string | null;
+      settledAt: string | null;
+    }>`
+      SELECT
+        thread_id AS "threadId",
+        deleted_at AS "deletedAt",
+        json_extract(payload_json, '$.settledAt') AS "settledAt"
+      FROM orchestration_v2_projection_threads
+    `.pipe(NodeSqliteClient.readOnly);
+    const threads = new Map(rows.map((row) => [row.threadId, row]));
+    for (const name of yield* fs.readDirectory(realRoot)) {
+      const folder = path.join(realRoot, name);
+      if ((yield* fs.lstat(folder)).type !== "Directory") continue;
+      const threadId = threadIdFromImagesFolderName(name);
+      const thread = threadId === null ? undefined : threads.get(threadId);
+      const settledAt =
+        thread?.settledAt == null
+          ? null
+          : DateTime.toEpochMillis(DateTime.makeUnsafe(thread.settledAt));
+      const expired =
+        thread === undefined ||
+        thread.deletedAt !== null ||
+        (settledAt !== null && now - settledAt >= THREAD_IMAGES_SETTLED_RETENTION_DAYS * DAY_MS);
+      if (!expired) continue;
+      yield* fs.remove(folder, { recursive: true });
+      removedThreads++;
+    }
+    if (removedThreads > 0)
+      yield* Effect.logInfo("storage cleanup removed thread images", { threads: removedThreads });
+  });
+
   const reportRef = yield* SubscriptionRef.make<StorageCleanupReport | null>(null);
   const cleanCheckpointRefs = Effect.fn("StorageCleanup.cleanCheckpointRefs")(function* () {
     // Forks display their source history even after its thread is deleted. Keep
@@ -2226,6 +2269,9 @@ const make = Effect.gen(function* () {
         ),
       );
     }
+    yield* cleanThreadImages(now).pipe(
+      Effect.catch((error) => Effect.logWarning("thread image cleanup failed", { error })),
+    );
     const counts = { removed: 0, kept: 0, failed: 0 };
     let bytesFreed = 0;
     for (const entry of entries) {

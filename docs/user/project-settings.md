@@ -43,6 +43,7 @@ Enable automatic cleanup in **Settings → Worktrees → Cleanup** (off by defau
 - **Scratch folders**: Inactive and settled rules also apply to [no-project scratch folders](./thread-sidebar.md#start-without-a-project) (skipped if they contain a Git repo or enabled scheduled task). Because scratch files aren't in Git, deleted files cannot be recovered.
 - **Manual run**: Click **Delete now** to run rules immediately and inspect what was removed, kept, or orphaned (untracked folders are listed but never auto-deleted).
 - **Captures and logs**: Browser captures and rotated logs have separate machine-wide retention periods.
+- **Thread images**: A thread keeps a copy of each local image it shows, so the image still appears after a reboot empties `/tmp` or its file is deleted. The copies go when the thread is deleted, and 30 days after it is settled. An image no client displayed before its file went away has no copy.
 
 ## Keep the default branch current
 

@@ -391,6 +391,95 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  describe("images a thread displayed", () => {
+    const resolveIssued = (relativeUrl: string) => {
+      const suffix = relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      return resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
+    };
+    const readResolved = (resolved: unknown) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        expect(resolved).toMatchObject({ kind: "file" });
+        return yield* fs.readFileString((resolved as { readonly path: string }).path);
+      });
+
+    it.effect("keeps serving an image after its file is deleted", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-thread-image-" });
+        const filePath = path.join(outside, "after.png");
+        yield* fs.writeFileString(filePath, "first capture");
+        const resource = {
+          _tag: "media-file" as const,
+          threadId: ThreadId.make("mcp:thread-with-images"),
+          path: filePath,
+        };
+        const shown = yield* issueAssetUrl({ resource });
+        expect(yield* readResolved(yield* resolveIssued(shown.relativeUrl))).toBe("first capture");
+
+        yield* fs.writeFileString(filePath, "second capture");
+        yield* fs.utimes(filePath, 1_795_773_600, 1_795_773_600);
+        yield* issueAssetUrl({ resource });
+        yield* fs.remove(filePath);
+
+        const restored = yield* issueAssetUrl({ resource });
+        expect(restored.relativeUrl.endsWith("/after.png")).toBe(true);
+        expect(yield* readResolved(yield* resolveIssued(restored.relativeUrl))).toBe(
+          "second capture",
+        );
+        // Another thread never displayed this image, so it has no copy to fall back on.
+        const otherThread = yield* Effect.flip(
+          issueAssetUrl({ resource: { ...resource, threadId: ThreadId.make("thread-other") } }),
+        );
+        expect(otherThread._tag).toBe("AssetWorkspaceAssetNotFoundError");
+      }).pipe(Effect.provide(layerTest)),
+    );
+
+    it.effect("serves a relative image after its worktree is removed", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-thread-image-tree-" });
+        const root = path.join(directory, "worktree");
+        yield* fs.makeDirectory(path.join(root, "shots"), { recursive: true });
+        yield* fs.writeFileString(path.join(root, "shots", "card.png"), "card");
+        const resource = {
+          _tag: "media-file" as const,
+          threadId: ThreadId.make("thread-1"),
+          path: "shots/card.png",
+          hostOnly: true as const,
+        };
+        yield* issueAssetUrl({ resource, workspaceRoot: root });
+        yield* fs.remove(root, { recursive: true });
+
+        const restored = yield* issueAssetUrl({ resource, workspaceRoot: root });
+        expect(yield* readResolved(yield* resolveIssued(restored.relativeUrl))).toBe("card");
+      }).pipe(Effect.provide(layerTest)),
+    );
+
+    it.effect("copies only images", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-thread-video-" });
+        const filePath = path.join(outside, "recording.mp4");
+        yield* fs.writeFileString(filePath, "video");
+        const resource = {
+          _tag: "media-file" as const,
+          threadId: ThreadId.make("thread-1"),
+          path: filePath,
+        };
+        yield* issueAssetUrl({ resource });
+        yield* fs.remove(filePath);
+        expect((yield* Effect.flip(issueAssetUrl({ resource })))._tag).toBe(
+          "AssetWorkspaceAssetNotFoundError",
+        );
+      }).pipe(Effect.provide(layerTest)),
+    );
+  });
+
   it.effect("previews draft audio and video from relative workspace paths", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

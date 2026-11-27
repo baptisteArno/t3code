@@ -48,6 +48,8 @@ export interface ServerDerivedPaths {
   readonly worktreeCheckoutCacheDir: string;
   readonly attachmentsDir: string;
   readonly browserArtifactsDir: string;
+  /** Copies of the local images threads displayed, served once the original is gone. */
+  readonly threadImagesDir: string;
   readonly logsDir: string;
   readonly serverTracePath: string;
   readonly providerLogsDir: string;
@@ -168,6 +170,7 @@ export const deriveServerPaths = Effect.fn(function* (
     worktreeCheckoutCacheDir: join(providerStatusCacheDir, "worktree-checkouts"),
     attachmentsDir,
     browserArtifactsDir: join(stateDir, "browser-artifacts"),
+    threadImagesDir: join(stateDir, "thread-images"),
     logsDir,
     serverTracePath: join(logsDir, "server.trace.ndjson"),
     providerLogsDir,

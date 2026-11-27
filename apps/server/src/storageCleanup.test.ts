@@ -28,6 +28,7 @@ import {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ServerConfig from "./config.ts";
+import { threadImagesFolderName } from "./assets/ThreadImageCopies.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as CheckpointCaptureIndex from "./vcs/checkpointCaptureIndex.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -4481,3 +4482,52 @@ it.effect("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+describe("thread image cleanup", () => {
+  it.live("drops a deleted thread's images and a settled thread's once its days pass", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, sql, fs, config } = yield* checkpointCleanupFixture();
+        const now = yield* Clock.currentTimeMillis;
+        const iso = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(now + offsetMs));
+        const folders = new Map<string, string>();
+        for (const [id, options] of [
+          ["mcp:active", {}],
+          ["settled-recently", { settledAt: iso(-29 * DAY_MS) }],
+          ["settled-long-ago", { settledAt: iso(-31 * DAY_MS) }],
+          ["deleted", { deleted: true }],
+        ] as const) {
+          yield* sql`INSERT INTO orchestration_v2_projection_threads ${sql.insert({
+            thread_id: id,
+            project_id: "project-1",
+            title: id,
+            default_provider: "codex",
+            runtime_mode: "full-access",
+            interaction_mode: "default",
+            created_at: iso(-40 * DAY_MS),
+            updated_at: iso(-40 * DAY_MS),
+            archived_at: null,
+            deleted_at: "deleted" in options ? iso(-DAY_MS) : null,
+            payload_json: JSON.stringify(
+              "settledAt" in options ? { settledAt: options.settledAt } : {},
+            ),
+          })}`;
+          const folder = `${config.threadImagesDir}/${threadImagesFolderName(ThreadId.make(id))}`;
+          yield* fs.makeDirectory(`${folder}/key`, { recursive: true });
+          yield* fs.writeFileString(`${folder}/key/after.png`, "image");
+          folders.set(id, folder);
+        }
+        const unknown = `${config.threadImagesDir}/${threadImagesFolderName(ThreadId.make("gone"))}`;
+        yield* fs.makeDirectory(`${unknown}/key`, { recursive: true });
+        yield* fs.writeFileString(`${unknown}/key/after.png`, "image");
+
+        yield* service.runNow;
+        expect(yield* fs.exists(folders.get("mcp:active")!)).toBe(true);
+        expect(yield* fs.exists(folders.get("settled-recently")!)).toBe(true);
+        expect(yield* fs.exists(folders.get("settled-long-ago")!)).toBe(false);
+        expect(yield* fs.exists(folders.get("deleted")!)).toBe(false);
+        expect(yield* fs.exists(unknown)).toBe(false);
+      }).pipe(Effect.provide(Sqlite.layerMemory)),
+    ),
+  );
+});
